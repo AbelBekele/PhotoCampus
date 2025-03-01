@@ -2,13 +2,13 @@ import graphene
 from graphene_django import DjangoObjectType
 from graphene_django.filter import DjangoFilterConnectionField
 from django.contrib.auth.models import User
-from .models import Post, Comment, Like
+from .models import Post, Comment, Like, Share
 
 # Define Types
 class UserType(DjangoObjectType):
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'first_name', 'last_name', 'posts', 'comments', 'likes')
+        fields = ('id', 'username', 'email', 'first_name', 'last_name', 'posts', 'comments', 'likes', 'shares')
 
 class PostType(DjangoObjectType):
     class Meta:
@@ -44,17 +44,31 @@ class LikeType(DjangoObjectType):
         }
         interfaces = (graphene.relay.Node,)
 
+class ShareType(DjangoObjectType):
+    class Meta:
+        model = Share
+        fields = '__all__'
+        filter_fields = {
+            'user__username': ['exact'],
+            'post__id': ['exact'],
+            'shared_with': ['exact', 'icontains'],
+            'created_at': ['exact', 'gt', 'lt'],
+        }
+        interfaces = (graphene.relay.Node,)
+
 # Query
 class Query(graphene.ObjectType):
     # Single item queries
     post = graphene.relay.Node.Field(PostType)
     comment = graphene.relay.Node.Field(CommentType)
     like = graphene.relay.Node.Field(LikeType)
+    share = graphene.relay.Node.Field(ShareType)
     
     # List queries
     all_posts = DjangoFilterConnectionField(PostType)
     all_comments = DjangoFilterConnectionField(CommentType)
     all_likes = DjangoFilterConnectionField(LikeType)
+    all_shares = DjangoFilterConnectionField(ShareType)
     
     def resolve_all_posts(self, info, **kwargs):
         return Post.objects.all()
@@ -64,6 +78,9 @@ class Query(graphene.ObjectType):
     
     def resolve_all_likes(self, info, **kwargs):
         return Like.objects.all()
+    
+    def resolve_all_shares(self, info, **kwargs):
+        return Share.objects.all()
 
 # Mutations
 class CreatePost(graphene.Mutation):
@@ -154,8 +171,32 @@ class UnlikePost(graphene.Mutation):
         except Like.DoesNotExist:
             return UnlikePost(success=False)
 
+class SharePost(graphene.Mutation):
+    class Arguments:
+        post_id = graphene.ID(required=True)
+        shared_with = graphene.String(required=False)
+
+    share = graphene.Field(ShareType)
+    
+    def mutate(self, info, post_id, shared_with=None):
+        user = info.context.user
+        if user.is_anonymous:
+            raise Exception('You must be logged in to share a post!')
+        
+        post = Post.objects.get(pk=post_id)
+        
+        share = Share(
+            post=post,
+            user=user,
+            shared_with=shared_with
+        )
+        share.save()
+        
+        return SharePost(share=share)
+
 class Mutation(graphene.ObjectType):
     create_post = CreatePost.Field()
     create_comment = CreateComment.Field()
     like_post = LikePost.Field()
-    unlike_post = UnlikePost.Field() 
+    unlike_post = UnlikePost.Field()
+    share_post = SharePost.Field() 

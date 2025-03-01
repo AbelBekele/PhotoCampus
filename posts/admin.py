@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Post, Comment, Like
+from .models import Post, Comment, Like, Share
 
 @admin.register(Post)
 class PostAdmin(admin.ModelAdmin):
@@ -20,4 +20,11 @@ class LikeAdmin(admin.ModelAdmin):
     list_display = ('post', 'user', 'created_at')
     list_filter = ('created_at', 'user')
     search_fields = ('post__title', 'user__username')
+    date_hierarchy = 'created_at'
+
+@admin.register(Share)
+class ShareAdmin(admin.ModelAdmin):
+    list_display = ('post', 'user', 'shared_with', 'created_at')
+    list_filter = ('created_at', 'user', 'shared_with')
+    search_fields = ('post__title', 'user__username', 'shared_with')
     date_hierarchy = 'created_at'

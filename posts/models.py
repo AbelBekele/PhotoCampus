@@ -42,3 +42,16 @@ class Like(models.Model):
         
     def __str__(self):
         return f"{self.user.username} likes {self.post.title}"
+
+class Share(models.Model):
+    """Model representing a share of a post."""
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='shares')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='shares')
+    shared_with = models.CharField(max_length=255, blank=True, null=True, help_text="Platform or person the post was shared with")
+    created_at = models.DateTimeField(default=timezone.now)
+    
+    def __str__(self):
+        return f"{self.user.username} shared {self.post.title}"
+    
+    class Meta:
+        ordering = ['-created_at']
