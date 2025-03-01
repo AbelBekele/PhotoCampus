@@ -3,23 +3,37 @@ from graphene_django import DjangoObjectType
 from graphene_django.filter import DjangoFilterConnectionField
 from django.contrib.auth.models import User
 from .models import Post, Comment, Like, Share
+from django.contrib.auth import get_user_model
+from graphene import relay
+import django_filters
 
 # Define Types
 class UserType(DjangoObjectType):
     class Meta:
         model = User
         fields = ('id', 'username', 'email', 'first_name', 'last_name', 'posts', 'comments', 'likes', 'shares')
+        filter_fields = {
+            'username': ['exact', 'icontains'],
+            'email': ['exact'],
+        }
+        interfaces = (graphene.relay.Node,)
+
+class PostFilter(django_filters.FilterSet):
+    title_contains = django_filters.CharFilter(field_name='title', lookup_expr='icontains')
+    content_contains = django_filters.CharFilter(field_name='content', lookup_expr='icontains')
+    created_after = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='gte')
+    created_before = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='lte')
+    author_username = django_filters.CharFilter(field_name='author__username', lookup_expr='exact')
+    
+    class Meta:
+        model = Post
+        fields = ['title', 'content', 'author', 'created_at']
 
 class PostType(DjangoObjectType):
     class Meta:
         model = Post
         fields = '__all__'
-        filter_fields = {
-            'title': ['exact', 'icontains', 'istartswith'],
-            'content': ['icontains'],
-            'author__username': ['exact'],
-            'created_at': ['exact', 'gt', 'lt'],
-        }
+        filterset_class = PostFilter
         interfaces = (graphene.relay.Node,)
 
 class CommentType(DjangoObjectType):
@@ -58,6 +72,11 @@ class ShareType(DjangoObjectType):
 
 # Query
 class Query(graphene.ObjectType):
+    # User queries
+    me = graphene.Field(UserType)
+    user = graphene.relay.Node.Field(UserType)
+    all_users = DjangoFilterConnectionField(UserType)
+    
     # Single item queries
     post = graphene.relay.Node.Field(PostType)
     comment = graphene.relay.Node.Field(CommentType)
@@ -69,6 +88,15 @@ class Query(graphene.ObjectType):
     all_comments = DjangoFilterConnectionField(CommentType)
     all_likes = DjangoFilterConnectionField(LikeType)
     all_shares = DjangoFilterConnectionField(ShareType)
+    
+    def resolve_me(self, info):
+        user = info.context.user
+        if user.is_authenticated:
+            return user
+        return None
+    
+    def resolve_all_users(self, info, **kwargs):
+        return User.objects.all()
     
     def resolve_all_posts(self, info, **kwargs):
         return Post.objects.all()
@@ -82,7 +110,38 @@ class Query(graphene.ObjectType):
     def resolve_all_shares(self, info, **kwargs):
         return Share.objects.all()
 
-# Mutations
+# User Registration
+class CreateUser(graphene.Mutation):
+    class Arguments:
+        username = graphene.String(required=True)
+        email = graphene.String(required=True)
+        password = graphene.String(required=True)
+        first_name = graphene.String(required=False)
+        last_name = graphene.String(required=False)
+
+    user = graphene.Field(UserType)
+
+    def mutate(self, info, username, email, password, first_name=None, last_name=None):
+        User = get_user_model()
+        
+        # Check if user already exists
+        if User.objects.filter(username=username).exists():
+            raise Exception('Username already exists')
+        if User.objects.filter(email=email).exists():
+            raise Exception('Email already exists')
+        
+        # Create new user
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password,
+            first_name=first_name or '',
+            last_name=last_name or ''
+        )
+        
+        return CreateUser(user=user)
+
+# Update CreatePost mutation
 class CreatePost(graphene.Mutation):
     class Arguments:
         title = graphene.String(required=True)
@@ -106,6 +165,7 @@ class CreatePost(graphene.Mutation):
         
         return CreatePost(post=post)
 
+# Mutations
 class CreateComment(graphene.Mutation):
     class Arguments:
         post_id = graphene.ID(required=True)
@@ -195,6 +255,7 @@ class SharePost(graphene.Mutation):
         return SharePost(share=share)
 
 class Mutation(graphene.ObjectType):
+    create_user = CreateUser.Field()
     create_post = CreatePost.Field()
     create_comment = CreateComment.Field()
     like_post = LikePost.Field()
