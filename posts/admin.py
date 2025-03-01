@@ -3,10 +3,26 @@ from .models import Post, Comment, Like, Share
 
 @admin.register(Post)
 class PostAdmin(admin.ModelAdmin):
-    list_display = ('title', 'author', 'created_at')
-    list_filter = ('created_at', 'author')
-    search_fields = ('title', 'content', 'author__username')
+    list_display = ('title', 'author', 'university', 'company', 'department', 'is_private', 'created_at')
+    list_filter = ('created_at', 'author', 'university', 'company', 'department', 'is_private', 'event_date')
+    search_fields = ('title', 'content', 'author__username', 'location', 'event_name')
     date_hierarchy = 'created_at'
+    fieldsets = (
+        ('Post Information', {
+            'fields': ('title', 'content', 'image', 'author')
+        }),
+        ('Organization', {
+            'fields': ('university', 'company', 'department', 'is_private')
+        }),
+        ('Event Details', {
+            'fields': ('location', 'event_name', 'event_date')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    readonly_fields = ('created_at', 'updated_at')
 
 @admin.register(Comment)
 class CommentAdmin(admin.ModelAdmin):
