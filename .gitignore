@@ -79,6 +79,8 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+Instruction.md
+
 
 # Secret files
 *.pem
@@ -93,3 +95,6 @@ credentials.json
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Ruff
+.ruff_cache/

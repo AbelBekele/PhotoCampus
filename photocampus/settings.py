@@ -86,14 +86,22 @@ WSGI_APPLICATION = 'photocampus.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME', default='photocampus'),
-        'USER': config('DB_USER', default='postgres'),
-        'PASSWORD': config('DB_PASSWORD', default='postgres'),
-        'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='5432'),
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
     }
 }
+
+# Uncomment the PostgreSQL configuration when ready to use it
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': config('DB_NAME', default='photocampus'),
+#         'USER': config('DB_USER', default='postgres'),
+#         'PASSWORD': config('DB_PASSWORD', default='postgres'),
+#         'HOST': config('DB_HOST', default='localhost'),
+#         'PORT': config('DB_PORT', default='5432'),
+#     }
+# }
 
 
 # Password validation
@@ -130,11 +138,11 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
-STATIC_URL = '/static/'
+STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 
-# Media files
+# Media files (Uploaded by users)
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
@@ -143,7 +151,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# GraphQL settings
+# Graphene Configuration
 GRAPHENE = {
     'SCHEMA': 'photocampus.schema.schema',
     'MIDDLEWARE': [
@@ -152,7 +160,7 @@ GRAPHENE = {
 }
 
 # CORS settings
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = True  # For development only, restrict in production
 
 # JWT settings
 AUTHENTICATION_BACKENDS = [
