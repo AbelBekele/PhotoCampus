@@ -1,4 +1,3 @@
-
 # Social Media Feed Backend for University & Corporate Galleries
 
 ## Project Overview
@@ -38,6 +37,19 @@ This backend solution focuses on creating a scalable GraphQL API that supports h
 -   **API Layer**: GraphQL with Graphene
 -   **Testing Interface**: GraphQL Playground
 -   **Authentication**: JWT-based authentication
+
+### GraphQL API Features
+
+The GraphQL API provides flexible querying capabilities:
+
+-   **Optimized Queries**: Efficiently load posts with related comments and likes
+-   **Advanced Filtering**: Search and filter posts by multiple criteria
+-   **Real-time Interactions**: Like, comment, and share functionality
+-   **User Authentication**: JWT-based secure authentication
+-   **Pagination**: Cursor-based pagination for efficient data loading
+-   **Error Handling**: Comprehensive error handling and validation
+
+For detailed API documentation, see [GraphQL API Guide](graphql_api_guide.md).
 
 ### Database Schema
 
@@ -96,6 +108,76 @@ The API includes a hosted GraphQL Playground for easy testing and exploration:
     `python manage.py runserver`
     
 7.  Access GraphQL Playground at `http://localhost:8000/graphql/`
+
+## Testing with pytest
+
+The project includes comprehensive pytest-based tests for the GraphQL API. These tests cover all aspects of the API, including authentication, post management, comments, likes, and shares.
+
+### Running the Tests
+
+To run the tests, make sure you have installed all dependencies (including development dependencies) and have a running server:
+
+```bash
+# Run all tests
+pytest test_graphql.py -v
+
+# Run specific test modules or functions
+pytest test_graphql.py::test_login -v
+pytest test_graphql.py::test_create_post -v
+
+# Run tests with specific markers
+pytest test_graphql.py -m "parametrize" -v
+```
+
+### Configuration
+
+The test suite uses environment variables for configuration. You can set these in a `.env` file in the project root:
+
+```
+# .env file example
+TEST_USERNAME=testuser
+TEST_EMAIL=testuser@example.com
+TEST_PASSWORD=securepassword123
+TEST_SKIP_USER_CREATION=false
+GRAPHQL_API_URL=http://localhost:8000/graphql/
+```
+
+### Test Categories
+
+The tests are organized into the following categories:
+
+1. **Authentication Tests**
+   - User creation
+   - Login and token management
+   - User profile retrieval
+
+2. **Post Management Tests**
+   - Creating, updating, and deleting posts
+   - Querying posts with various filters
+   - Search functionality
+
+3. **Interaction Tests**
+   - Comments (creating and deleting)
+   - Likes (liking and unliking posts)
+   - Shares (sharing posts to different platforms)
+
+### Fixtures
+
+The test suite includes several useful fixtures:
+
+- `test_user`: Creates a test user for authentication tests
+- `auth_token`: Provides an authentication token for protected endpoints
+- `test_post`: Creates a temporary post for testing interactions
+- `test_comment`: Creates a temporary comment for testing
+
+### Adding New Tests
+
+To add new tests:
+
+1. Define the GraphQL query or mutation at the top of the file
+2. Create a test function using pytest's conventions
+3. Use the existing fixtures for authentication and data setup
+4. Add assertions to validate the expected behavior
 
 ## Performance Optimizations
 
