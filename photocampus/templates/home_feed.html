@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Home Feed - PhotoCampus{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8">
+            <h1 class="mb-4">Your Photo Feed</h1>
+            
+            <div id="feed-loading" class="text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p>Loading your personalized feed...</p>
+            </div>
+            
+            <div id="feed-content" class="d-none">
+                <!-- Feed items will be loaded here dynamically -->
+            </div>
+            
+            <div id="load-more" class="text-center mt-4 mb-5 d-none">
+                <button id="load-more-btn" class="btn btn-outline-primary">Load More</button>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Your Organizations</h5>
+                </div>
+                <div class="card-body" id="organizations-sidebar">
+                    <div class="text-center">
+                        <div class="spinner-border spinner-border-sm text-secondary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Trending</h5>
+                </div>
+                <div class="card-body" id="trending-sidebar">
+                    <div class="text-center">
+                        <div class="spinner-border spinner-border-sm text-secondary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Post template -->
+<template id="post-template">
+    <div class="card mb-4 post-item">
+        <div class="card-header d-flex align-items-center">
+            <img src="" alt="Profile" class="profile-image rounded-circle me-2" width="40" height="40">
+            <div>
+                <h6 class="mb-0 post-author"></h6>
+                <small class="text-muted post-org"></small>
+            </div>
+            <small class="ms-auto text-muted post-date"></small>
+        </div>
+        
+        <div class="post-image-container">
+            <img src="" class="card-img-top post-image" alt="Post image">
+        </div>
+        
+        <div class="card-body">
+            <h5 class="card-title post-title"></h5>
+            <p class="card-text post-content"></p>
+            
+            <div class="engagement-stats d-flex text-muted mb-2">
+                <small class="me-3"><i class="bi bi-heart"></i> <span class="likes-count">0</span> likes</small>
+                <small class="me-3"><i class="bi bi-chat"></i> <span class="comments-count">0</span> comments</small>
+                <small><i class="bi bi-share"></i> <span class="shares-count">0</span> shares</small>
+            </div>
+            
+            <div class="engagement-actions d-flex border-top pt-3">
+                <button class="btn btn-sm btn-link text-decoration-none like-btn">
+                    <i class="bi bi-heart"></i> Like
+                </button>
+                <button class="btn btn-sm btn-link text-decoration-none comment-btn">
+                    <i class="bi bi-chat"></i> Comment
+                </button>
+                <button class="btn btn-sm btn-link text-decoration-none share-btn">
+                    <i class="bi bi-share"></i> Share
+                </button>
+            </div>
+        </div>
+    </div>
+</template>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Current page for pagination
+    let currentPage = 1;
+    let hasMorePosts = true;
+    
+    // Fetch the home feed
+    function fetchHomeFeed(page = 1) {
+        const url = `/api/posts/home_feed/?page=${page}&page_size=10`;
+        
+        if (page === 1) {
+            // Show loading indicator for initial load
+            document.getElementById('feed-loading').classList.remove('d-none');
+            document.getElementById('feed-content').classList.add('d-none');
+        }
+        
+        fetch(url)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('You must be logged in to view your feed');
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Hide loading indicator
+                document.getElementById('feed-loading').classList.add('d-none');
+                document.getElementById('feed-content').classList.remove('d-none');
+                
+                if (data.length === 0) {
+                    hasMorePosts = false;
+                    
+                    if (page === 1) {
+                        // No posts at all
+                        document.getElementById('feed-content').innerHTML = `
+                            <div class="alert alert-info">
+                                <p class="mb-0">Your feed is empty! Here are some things you can do:</p>
+                                <ul class="mb-0 mt-2">
+                                    <li>Join more organizations</li>
+                                    <li>Create your own posts</li>
+                                    <li>Engage with other users' content</li>
+                                </ul>
+                            </div>
+                        `;
+                    }
+                    
+                    document.getElementById('load-more').classList.add('d-none');
+                    return;
+                }
+                
+                // Render posts
+                renderPosts(data, page > 1);
+                
+                // Show load more button if we got a full page
+                if (data.length === 10) {
+                    document.getElementById('load-more').classList.remove('d-none');
+                } else {
+                    hasMorePosts = false;
+                    document.getElementById('load-more').classList.add('d-none');
+                }
+            })
+            .catch(error => {
+                document.getElementById('feed-loading').classList.add('d-none');
+                document.getElementById('feed-content').innerHTML = `
+                    <div class="alert alert-danger">
+                        ${error.message}
+                    </div>
+                `;
+            });
+    }
+    
+    // Render posts in the feed
+    function renderPosts(posts, append = false) {
+        const feedContainer = document.getElementById('feed-content');
+        const postTemplate = document.getElementById('post-template');
+        
+        if (!append) {
+            feedContainer.innerHTML = '';
+        }
+        
+        posts.forEach(post => {
+            const postElement = document.importNode(postTemplate.content, true);
+            
+            // Set post data
+            postElement.querySelector('.post-title').textContent = post.title;
+            postElement.querySelector('.post-content').textContent = post.content;
+            postElement.querySelector('.post-author').textContent = post.author.username;
+            
+            // Set organization if available
+            const orgElement = postElement.querySelector('.post-org');
+            if (post.university) {
+                orgElement.textContent = post.university.name;
+            } else if (post.company) {
+                orgElement.textContent = post.company.name;
+            } else {
+                orgElement.textContent = 'Personal Post';
+            }
+            
+            // Set post date
+            const postDate = new Date(post.created_at);
+            postElement.querySelector('.post-date').textContent = postDate.toLocaleDateString();
+            
+            // Set image if available
+            const imageContainer = postElement.querySelector('.post-image-container');
+            const postImage = postElement.querySelector('.post-image');
+            if (post.image) {
+                postImage.src = post.image;
+            } else {
+                imageContainer.classList.add('d-none');
+            }
+            
+            // Set engagement stats
+            postElement.querySelector('.likes-count').textContent = post.likes?.length || 0;
+            postElement.querySelector('.comments-count').textContent = post.comments?.length || 0;
+            postElement.querySelector('.shares-count').textContent = post.shares?.length || 0;
+            
+            // Add post ID as data attribute
+            const postCard = postElement.querySelector('.post-item');
+            postCard.dataset.postId = post.id;
+            
+            // Add to feed
+            feedContainer.appendChild(postElement);
+        });
+    }
+    
+    // Fetch organizations for sidebar
+    function fetchOrganizations() {
+        fetch('/api/organizations/memberships/')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('organizations-sidebar');
+                
+                if (data.length === 0) {
+                    container.innerHTML = `
+                        <p class="text-muted mb-0">You haven't joined any organizations yet.</p>
+                        <a href="/organizations/explore/" class="btn btn-sm btn-primary mt-2">
+                            Find Organizations
+                        </a>
+                    `;
+                    return;
+                }
+                
+                let html = '<ul class="list-group list-group-flush">';
+                data.forEach(membership => {
+                    const org = membership.university || membership.company;
+                    html += `
+                        <li class="list-group-item px-0">
+                            <a href="/organizations/${org.id}/" class="text-decoration-none">
+                                ${org.name}
+                            </a>
+                            <span class="badge bg-secondary float-end">${membership.role}</span>
+                        </li>
+                    `;
+                });
+                html += '</ul>';
+                
+                container.innerHTML = html;
+            })
+            .catch(error => {
+                document.getElementById('organizations-sidebar').innerHTML = `
+                    <p class="text-muted mb-0">Failed to load organizations.</p>
+                `;
+            });
+    }
+    
+    // Fetch trending posts
+    function fetchTrending() {
+        fetch('/api/posts/?ordering=-created_at&limit=5')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('trending-sidebar');
+                
+                if (data.length === 0) {
+                    container.innerHTML = '<p class="text-muted mb-0">No trending posts available.</p>';
+                    return;
+                }
+                
+                let html = '<ul class="list-group list-group-flush">';
+                data.forEach(post => {
+                    html += `
+                        <li class="list-group-item px-0">
+                            <a href="/posts/${post.id}/" class="text-decoration-none">
+                                ${post.title}
+                            </a>
+                            <div class="small text-muted">by ${post.author.username}</div>
+                        </li>
+                    `;
+                });
+                html += '</ul>';
+                
+                container.innerHTML = html;
+            })
+            .catch(error => {
+                document.getElementById('trending-sidebar').innerHTML = `
+                    <p class="text-muted mb-0">Failed to load trending posts.</p>
+                `;
+            });
+    }
+    
+    // Load more posts when button is clicked
+    document.getElementById('load-more-btn').addEventListener('click', function() {
+        if (!hasMorePosts) return;
+        
+        currentPage++;
+        fetchHomeFeed(currentPage);
+    });
+    
+    // Initialize the feed
+    document.addEventListener('DOMContentLoaded', function() {
+        fetchHomeFeed();
+        fetchOrganizations();
+        fetchTrending();
+    });
+</script>
+{% endblock %} 

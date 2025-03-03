@@ -6,7 +6,9 @@ from .models import Post, Comment, Like, Share
 from django.contrib.auth import get_user_model
 from graphene import relay
 import django_filters
-from django.db.models import Q
+from django.db.models import Q, Count, F, ExpressionWrapper, DateTimeField
+from django.utils import timezone
+from datetime import timedelta
 
 # Define Types
 class UserType(DjangoObjectType):
@@ -114,6 +116,13 @@ class Query(graphene.ObjectType):
         offset=graphene.Int(default_value=0)
     )
     
+    # Home Feed query - personalized content without follows
+    home_feed = graphene.List(
+        PostType,
+        limit=graphene.Int(default_value=20),
+        offset=graphene.Int(default_value=0)
+    )
+    
     def resolve_me(self, info):
         user = info.context.user
         if user.is_authenticated:
@@ -159,6 +168,64 @@ class Query(graphene.ObjectType):
         return Post.objects.select_related('author', 'university', 'company', 'department')\
                 .prefetch_related('comments', 'likes', 'shares')\
                 .order_by('-created_at')[offset:offset+limit]
+    
+    def resolve_home_feed(self, info, limit=20, offset=0):
+        user = info.context.user
+        if not user.is_authenticated:
+            return Post.objects.none()
+            
+        # Calculate a date 30 days ago for recent content
+        thirty_days_ago = timezone.now() - timedelta(days=30)
+        
+        # Base queryset - only public posts or posts from user's organizations
+        base_query = Post.objects.filter(
+            Q(is_private=False) | 
+            Q(university__in=user.administered_universities.all()) |
+            Q(university__in=[m.university for m in user.organization_memberships.all() if m.university]) |
+            Q(company__in=[m.company for m in user.organization_memberships.all() if m.company])
+        ).filter(
+            created_at__gte=thirty_days_ago
+        ).select_related(
+            'author', 'university', 'company', 'department'
+        ).prefetch_related(
+            'likes', 'comments', 'shares'
+        ).distinct()
+        
+        # Posts the user has interacted with (liked, commented, shared)
+        user_interacted_posts = Post.objects.filter(
+            Q(likes__user=user) | 
+            Q(comments__author=user) | 
+            Q(shares__user=user)
+        ).distinct()
+        
+        # Calculate engagement score - more likes, comments, shares = higher score
+        # Also prioritize recent content
+        posts_with_stats = base_query.annotate(
+            like_count=Count('likes', distinct=True),
+            comment_count=Count('comments', distinct=True),
+            share_count=Count('shares', distinct=True),
+            total_engagement=Count('likes', distinct=True) + Count('comments', distinct=True) * 2 + Count('shares', distinct=True) * 3,
+            # Posts from user's organizations get a boost
+            org_relevance=Count(
+                'university', 
+                filter=Q(
+                    university__in=[m.university for m in user.organization_memberships.all() if m.university]
+                ) | Q(
+                    company__in=[m.company for m in user.organization_memberships.all() if m.company]
+                ),
+                distinct=True
+            ) * 5
+        ).order_by('-created_at', '-total_engagement', '-org_relevance')
+        
+        # Give interacted posts higher priority by boosting them to the top
+        # but limit to 5 so they don't overwhelm the feed
+        interacted_posts = posts_with_stats.filter(id__in=user_interacted_posts.values_list('id', flat=True))[:5]
+        
+        # Regular posts make up the rest of the feed
+        regular_posts = posts_with_stats.exclude(id__in=interacted_posts.values_list('id', flat=True))[:(limit-interacted_posts.count())]
+        
+        # Combine the two sets
+        return list(interacted_posts) + list(regular_posts)
 
 # User Registration
 class CreateUser(graphene.Mutation):

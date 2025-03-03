@@ -20,6 +20,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 from graphene_django.views import GraphQLView
 from django.views.decorators.csrf import csrf_exempt
+from django.views.generic import TemplateView
+from django.contrib.auth.decorators import login_required
 
 # Import for Swagger documentation
 from rest_framework import permissions
@@ -51,6 +53,7 @@ urlpatterns = [
     path('swagger<format>/', schema_view.without_ui(cache_timeout=0), name='schema-json'),
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
+    path('', login_required(TemplateView.as_view(template_name='home_feed.html')), name='home'),
 ]
 
 # Serve media files in development
