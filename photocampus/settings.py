@@ -68,7 +68,7 @@ ROOT_URLCONF = 'photocampus.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [os.path.join(BASE_DIR, 'photocampus/templates')],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -163,7 +163,11 @@ GRAPHENE = {
 }
 
 # CORS settings
-CORS_ALLOW_ALL_ORIGINS = True  # For development only, restrict in production
+CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only for development
+if not DEBUG:
+    CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', 
+                              default='*', 
+                              cast=lambda v: [s.strip() for s in v.split(',')])
 
 # JWT settings
 AUTHENTICATION_BACKENDS = [
@@ -181,10 +185,22 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.BasicAuthentication',
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticatedOrReadOnly',
     ],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '100/day',
+        'user': '1000/day',
+        'post_create': '20/day',
+        'like': '200/day',
+    },
+    'EXCEPTION_HANDLER': 'photocampus.utils.custom_exception_handler',
 }
 
 # Swagger settings
@@ -202,3 +218,10 @@ SWAGGER_SETTINGS = {
     'USE_SESSION_AUTH': True,
     'JSON_EDITOR': True,
 }
+
+# Security Settings
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_BROWSER_XSS_FILTER = True
+X_FRAME_OPTIONS = 'DENY'
+CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_SECURE = not DEBUG

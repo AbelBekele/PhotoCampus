@@ -28,6 +28,26 @@ from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 
+# Import the viewsets
+from posts.api import PostViewSet, CommentViewSet, LikeViewSet, ShareViewSet
+from organizations.api import UniversityViewSet, CompanyViewSet, DepartmentViewSet, MembershipViewSet
+from rest_framework.routers import DefaultRouter
+
+# Create API routers
+router = DefaultRouter()
+
+# Register posts endpoints
+router.register(r'posts', PostViewSet)
+router.register(r'comments', CommentViewSet)
+router.register(r'likes', LikeViewSet)
+router.register(r'shares', ShareViewSet)
+
+# Register organizations endpoints
+router.register(r'organizations/universities', UniversityViewSet)
+router.register(r'organizations/companies', CompanyViewSet)
+router.register(r'organizations/departments', DepartmentViewSet)
+router.register(r'organizations/memberships', MembershipViewSet, basename='membership')
+
 schema_view = get_schema_view(
    openapi.Info(
       title="PhotoCampus API",
@@ -46,14 +66,20 @@ urlpatterns = [
     path('graphql/', csrf_exempt(GraphQLView.as_view(graphiql=True))),
     
     # REST API endpoints
-    path('api/', include('posts.urls')),
+    path('api/', include(router.urls)),
     path('api-auth/', include('rest_framework.urls')),
     
     # Swagger documentation URLs
     path('swagger<format>/', schema_view.without_ui(cache_timeout=0), name='schema-json'),
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
+    
+    # Templates
     path('', login_required(TemplateView.as_view(template_name='home_feed.html')), name='home'),
+    path('organizations/explore/', login_required(TemplateView.as_view(template_name='explore_organizations.html')), name='explore_organizations'),
+    
+    # Post detail view
+    path('posts/<int:id>/', login_required(TemplateView.as_view(template_name='post_detail.html')), name='post_detail'),
 ]
 
 # Serve media files in development

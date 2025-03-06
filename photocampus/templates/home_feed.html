@@ -7,6 +7,52 @@
 <div class="container mt-4">
     <div class="row">
         <div class="col-md-8">
+            <!-- Create Post Button -->
+            <div class="mb-4">
+                <button id="toggle-create-post" class="btn btn-primary">
+                    <i class="bi bi-plus-circle"></i> Create a Post
+                </button>
+            </div>
+            
+            <!-- Create Post Card - Initially Hidden -->
+            <div class="card mb-4" id="create-post-card" style="display: none;">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Create a Post</h5>
+                    <button type="button" class="btn-close" id="close-create-post"></button>
+                </div>
+                <div class="card-body">
+                    <form id="create-post-form">
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="post-title" placeholder="Title" required>
+                        </div>
+                        <div class="mb-3">
+                            <textarea class="form-control" id="post-content" rows="3" placeholder="What's on your mind?" required></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="post-image" class="form-label">Image (optional)</label>
+                            <input class="form-control" type="file" id="post-image" accept="image/*">
+                        </div>
+                        <div class="mb-3">
+                            <select class="form-select" id="post-organization">
+                                <option value="">Personal Post</option>
+                                <optgroup label="Your Organizations" id="org-options">
+                                    <!-- Will be populated dynamically -->
+                                </optgroup>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="post-private">
+                                <label class="form-check-label" for="post-private">
+                                    Make post private (only visible to organization members)
+                                </label>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Post</button>
+                    </form>
+                </div>
+            </div>
+
             <h1 class="mb-4">Your Photo Feed</h1>
             
             <div id="feed-loading" class="text-center">
@@ -36,6 +82,9 @@
                             <span class="visually-hidden">Loading...</span>
                         </div>
                     </div>
+                </div>
+                <div class="card-footer text-center">
+                    <a href="/organizations/explore/" class="btn btn-sm btn-outline-primary">Find More Organizations</a>
                 </div>
             </div>
             
@@ -95,6 +144,17 @@
         </div>
     </div>
 </template>
+
+<!-- Organizations template for explore section -->
+<template id="organization-template">
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="org-name"></h5>
+            <p class="org-description"></p>
+            <button class="btn btn-primary btn-sm join-org-btn">Join</button>
+        </div>
+    </div>
+</template>
 {% endblock %}
 
 {% block extra_js %}
@@ -102,6 +162,17 @@
     // Current page for pagination
     let currentPage = 1;
     let hasMorePosts = true;
+    
+    // Toggle create post form
+    document.getElementById('toggle-create-post').addEventListener('click', function() {
+        document.getElementById('create-post-card').style.display = 'block';
+        this.style.display = 'none';
+    });
+    
+    document.getElementById('close-create-post').addEventListener('click', function() {
+        document.getElementById('create-post-card').style.display = 'none';
+        document.getElementById('toggle-create-post').style.display = 'block';
+    });
     
     // Fetch the home feed
     function fetchHomeFeed(page = 1) {
@@ -216,6 +287,25 @@
             const postCard = postElement.querySelector('.post-item');
             postCard.dataset.postId = post.id;
             
+            // Setup like button action
+            const likeBtn = postElement.querySelector('.like-btn');
+            likeBtn.addEventListener('click', () => {
+                fetch(`/api/posts/${post.id}/like/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCsrfToken()
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    // Update like count
+                    const likesCountElement = postCard.querySelector('.likes-count');
+                    likesCountElement.textContent = parseInt(likesCountElement.textContent) + 1;
+                })
+                .catch(error => console.error('Error liking post:', error));
+            });
+            
             // Add to feed
             feedContainer.appendChild(postElement);
         });
@@ -227,6 +317,7 @@
             .then(response => response.json())
             .then(data => {
                 const container = document.getElementById('organizations-sidebar');
+                const orgOptions = document.getElementById('org-options');
                 
                 if (data.length === 0) {
                     container.innerHTML = `
@@ -239,6 +330,8 @@
                 }
                 
                 let html = '<ul class="list-group list-group-flush">';
+                orgOptions.innerHTML = '';
+                
                 data.forEach(membership => {
                     const org = membership.university || membership.company;
                     html += `
@@ -249,6 +342,13 @@
                             <span class="badge bg-secondary float-end">${membership.role}</span>
                         </li>
                     `;
+                    
+                    // Add to post creation dropdown
+                    const optionType = membership.university ? 'university' : 'company';
+                    const option = document.createElement('option');
+                    option.value = `${optionType}:${org.id}`;
+                    option.textContent = org.name;
+                    orgOptions.appendChild(option);
                 });
                 html += '</ul>';
                 
@@ -263,7 +363,7 @@
     
     // Fetch trending posts
     function fetchTrending() {
-        fetch('/api/posts/?ordering=-created_at&limit=5')
+        fetch('/api/posts/?ordering=-total_engagement&limit=5')
             .then(response => response.json())
             .then(data => {
                 const container = document.getElementById('trending-sidebar');
@@ -293,6 +393,80 @@
                     <p class="text-muted mb-0">Failed to load trending posts.</p>
                 `;
             });
+    }
+    
+    // Create post
+    document.getElementById('create-post-form').addEventListener('submit', function(event) {
+        event.preventDefault();
+        
+        const title = document.getElementById('post-title').value;
+        const content = document.getElementById('post-content').value;
+        const imageInput = document.getElementById('post-image');
+        const organizationValue = document.getElementById('post-organization').value;
+        const isPrivate = document.getElementById('post-private').checked;
+        
+        const formData = new FormData();
+        formData.append('title', title);
+        formData.append('content', content);
+        formData.append('is_private', isPrivate);
+        
+        if (imageInput.files.length > 0) {
+            formData.append('image', imageInput.files[0]);
+        }
+        
+        // Handle organization selection
+        if (organizationValue) {
+            const [orgType, orgId] = organizationValue.split(':');
+            if (orgType === 'university') {
+                formData.append('university', orgId);
+            } else if (orgType === 'company') {
+                formData.append('company', orgId);
+            }
+        }
+        
+        fetch('/api/posts/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: formData
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to create post');
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Clear form
+            document.getElementById('create-post-form').reset();
+            
+            // Close the create post form
+            document.getElementById('create-post-card').style.display = 'none';
+            document.getElementById('toggle-create-post').style.display = 'block';
+            
+            // Refresh feed
+            fetchHomeFeed();
+            
+            // Show success message
+            alert('Post created successfully!');
+        })
+        .catch(error => {
+            console.error('Error creating post:', error);
+            alert('Error creating post: ' + error.message);
+        });
+    });
+    
+    // Get CSRF token
+    function getCsrfToken() {
+        const cookies = document.cookie.split(';');
+        for (let cookie of cookies) {
+            const [name, value] = cookie.trim().split('=');
+            if (name === 'csrftoken') {
+                return value;
+            }
+        }
+        return '';
     }
     
     // Load more posts when button is clicked

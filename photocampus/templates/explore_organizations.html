@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Explore Organizations - PhotoCampus{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8">
+            <h1 class="mb-4">Explore Organizations</h1>
+            
+            <ul class="nav nav-tabs mb-4" id="orgTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="universities-tab" data-bs-toggle="tab" data-bs-target="#universities" type="button" role="tab" aria-controls="universities" aria-selected="true">Universities</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="companies-tab" data-bs-toggle="tab" data-bs-target="#companies" type="button" role="tab" aria-controls="companies" aria-selected="false">Companies</button>
+                </li>
+            </ul>
+            
+            <div class="tab-content" id="orgTabContent">
+                <div class="tab-pane fade show active" id="universities" role="tabpanel" aria-labelledby="universities-tab">
+                    <div id="universities-loading" class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p>Loading universities...</p>
+                    </div>
+                    <div id="universities-content" class="row"></div>
+                </div>
+                
+                <div class="tab-pane fade" id="companies" role="tabpanel" aria-labelledby="companies-tab">
+                    <div id="companies-loading" class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p>Loading companies...</p>
+                    </div>
+                    <div id="companies-content" class="row"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Your Organizations</h5>
+                </div>
+                <div class="card-body" id="organizations-sidebar">
+                    <div class="text-center">
+                        <div class="spinner-border spinner-border-sm text-secondary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Organization Card Template -->
+<template id="organization-card-template">
+    <div class="col-md-6 mb-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title org-name"></h5>
+                <p class="card-text org-description"></p>
+                <p class="card-text"><small class="text-muted org-location"></small></p>
+            </div>
+            <div class="card-footer">
+                <button class="btn btn-primary join-btn">Join Organization</button>
+            </div>
+        </div>
+    </div>
+</template>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Fetch organizations the user can join
+    function fetchExploreOrganizations() {
+        fetch('/api/organizations/memberships/explore/')
+            .then(response => response.json())
+            .then(data => {
+                // Render universities
+                const universitiesContainer = document.getElementById('universities-content');
+                document.getElementById('universities-loading').classList.add('d-none');
+                
+                if (data.universities.length === 0) {
+                    universitiesContainer.innerHTML = '<div class="col-12"><p class="text-muted">No universities found to join.</p></div>';
+                } else {
+                    renderOrganizations(universitiesContainer, data.universities, 'university');
+                }
+                
+                // Render companies
+                const companiesContainer = document.getElementById('companies-content');
+                document.getElementById('companies-loading').classList.add('d-none');
+                
+                if (data.companies.length === 0) {
+                    companiesContainer.innerHTML = '<div class="col-12"><p class="text-muted">No companies found to join.</p></div>';
+                } else {
+                    renderOrganizations(companiesContainer, data.companies, 'company');
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching organizations:', error);
+                document.getElementById('universities-loading').classList.add('d-none');
+                document.getElementById('companies-loading').classList.add('d-none');
+                document.getElementById('universities-content').innerHTML = '<div class="col-12"><p class="text-danger">Failed to load universities.</p></div>';
+                document.getElementById('companies-content').innerHTML = '<div class="col-12"><p class="text-danger">Failed to load companies.</p></div>';
+            });
+    }
+    
+    // Render organization cards
+    function renderOrganizations(container, organizations, type) {
+        const template = document.getElementById('organization-card-template');
+        
+        organizations.forEach(org => {
+            const orgElement = document.importNode(template.content, true);
+            
+            // Set organization data
+            orgElement.querySelector('.org-name').textContent = org.name;
+            orgElement.querySelector('.org-description').textContent = org.description || 'No description available';
+            orgElement.querySelector('.org-location').textContent = `Location: ${org.location || 'Not specified'}`;
+            
+            // Set join button action
+            const joinBtn = orgElement.querySelector('.join-btn');
+            joinBtn.dataset.orgId = org.id;
+            joinBtn.dataset.orgType = type;
+            
+            joinBtn.addEventListener('click', function() {
+                const orgId = this.dataset.orgId;
+                const orgType = this.dataset.orgType;
+                joinOrganization(orgId, orgType, this);
+            });
+            
+            container.appendChild(orgElement);
+        });
+    }
+    
+    // Join an organization
+    function joinOrganization(orgId, orgType, button) {
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Joining...';
+        
+        const url = `/api/organizations/${orgType === 'university' ? 'universities' : 'companies'}/${orgId}/join/`;
+        
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: JSON.stringify({ role: 'Member' })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to join organization');
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Update button
+            button.className = 'btn btn-success';
+            button.innerHTML = '<i class="bi bi-check"></i> Joined';
+            button.disabled = true;
+            
+            // Reload organizations sidebar
+            fetchOrganizations();
+        })
+        .catch(error => {
+            console.error('Error joining organization:', error);
+            button.className = 'btn btn-danger';
+            button.innerHTML = 'Error';
+            setTimeout(() => {
+                button.className = 'btn btn-primary';
+                button.innerHTML = 'Try Again';
+                button.disabled = false;
+            }, 2000);
+        });
+    }
+    
+    // Fetch user's current organizations for sidebar
+    function fetchOrganizations() {
+        fetch('/api/organizations/memberships/')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('organizations-sidebar');
+                
+                if (data.length === 0) {
+                    container.innerHTML = `
+                        <p class="text-muted mb-0">You haven't joined any organizations yet.</p>
+                    `;
+                    return;
+                }
+                
+                let html = '<ul class="list-group list-group-flush">';
+                data.forEach(membership => {
+                    const org = membership.university || membership.company;
+                    html += `
+                        <li class="list-group-item px-0">
+                            <a href="/organizations/${org.id}/" class="text-decoration-none">
+                                ${org.name}
+                            </a>
+                            <span class="badge bg-secondary float-end">${membership.role}</span>
+                        </li>
+                    `;
+                });
+                html += '</ul>';
+                
+                container.innerHTML = html;
+            })
+            .catch(error => {
+                console.error('Error fetching organizations:', error);
+                document.getElementById('organizations-sidebar').innerHTML = `
+                    <p class="text-muted mb-0">Failed to load organizations.</p>
+                `;
+            });
+    }
+    
+    // Get CSRF token
+    function getCsrfToken() {
+        const cookies = document.cookie.split(';');
+        for (let cookie of cookies) {
+            const [name, value] = cookie.trim().split('=');
+            if (name === 'csrftoken') {
+                return value;
+            }
+        }
+        return '';
+    }
+    
+    // Initialize the page
+    document.addEventListener('DOMContentLoaded', function() {
+        fetchExploreOrganizations();
+        fetchOrganizations();
+    });
+</script>
+{% endblock %} 

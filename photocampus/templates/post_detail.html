@@ -1,0 +1,373 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Post Detail - PhotoCampus{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8">
+            <div id="post-loading" class="text-center">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p>Loading post...</p>
+            </div>
+            
+            <div id="post-content" class="d-none">
+                <!-- Post will be loaded here dynamically -->
+            </div>
+            
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Comments</h5>
+                </div>
+                <div class="card-body">
+                    <form id="comment-form" class="mb-3">
+                        <div class="mb-3">
+                            <textarea class="form-control" id="comment-content" rows="2" placeholder="Add a comment..." required></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Post Comment</button>
+                    </form>
+                    
+                    <div id="comments-loading" class="text-center">
+                        <div class="spinner-border spinner-border-sm text-secondary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p>Loading comments...</p>
+                    </div>
+                    
+                    <div id="comments-list" class="d-none">
+                        <!-- Comments will be loaded here dynamically -->
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Related Posts</h5>
+                </div>
+                <div class="card-body" id="related-posts">
+                    <div class="text-center">
+                        <div class="spinner-border spinner-border-sm text-secondary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Comment template -->
+<template id="comment-template">
+    <div class="comment mb-3 border-bottom pb-3">
+        <div class="d-flex align-items-start">
+            <img src="" alt="Profile" class="rounded-circle me-2" width="32" height="32">
+            <div>
+                <h6 class="mb-0 comment-author"></h6>
+                <small class="text-muted comment-date"></small>
+                <p class="comment-content mt-1"></p>
+            </div>
+        </div>
+    </div>
+</template>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let postId = null;
+    
+    // Extract post ID from URL
+    function getPostId() {
+        const pathParts = window.location.pathname.split('/');
+        return pathParts[pathParts.length - 2];
+    }
+    
+    // Fetch post details
+    function fetchPost() {
+        postId = getPostId();
+        
+        fetch(`/api/posts/${postId}/`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Post not found');
+                }
+                return response.json();
+            })
+            .then(post => {
+                // Hide loading indicator
+                document.getElementById('post-loading').classList.add('d-none');
+                document.getElementById('post-content').classList.remove('d-none');
+                
+                // Render post
+                renderPost(post);
+                
+                // Fetch comments
+                fetchComments();
+                
+                // Fetch related posts
+                fetchRelatedPosts(post.university?.id, post.company?.id);
+            })
+            .catch(error => {
+                document.getElementById('post-loading').classList.add('d-none');
+                document.getElementById('post-content').innerHTML = `
+                    <div class="alert alert-danger">
+                        ${error.message}
+                    </div>
+                `;
+            });
+    }
+    
+    // Render the post
+    function renderPost(post) {
+        const container = document.getElementById('post-content');
+        
+        // Build HTML for the post
+        let html = `
+            <div class="card">
+                <div class="card-header d-flex align-items-center">
+                    <div>
+                        <h6 class="mb-0">${post.author.username}</h6>
+                        <small class="text-muted">
+                            ${post.university ? post.university.name : post.company ? post.company.name : 'Personal Post'}
+                        </small>
+                    </div>
+                    <small class="ms-auto text-muted">${new Date(post.created_at).toLocaleDateString()}</small>
+                </div>
+        `;
+        
+        // Add image if available
+        if (post.image) {
+            html += `
+                <div class="post-image-container">
+                    <img src="${post.image}" class="card-img-top" alt="Post image">
+                </div>
+            `;
+        }
+        
+        // Add post content
+        html += `
+                <div class="card-body">
+                    <h5 class="card-title">${post.title}</h5>
+                    <p class="card-text">${post.content}</p>
+                    
+                    <div class="engagement-stats d-flex text-muted mb-2">
+                        <small class="me-3"><i class="bi bi-heart"></i> <span class="likes-count">${post.likes?.length || 0}</span> likes</small>
+                        <small class="me-3"><i class="bi bi-chat"></i> <span class="comments-count">${post.comments?.length || 0}</span> comments</small>
+                        <small><i class="bi bi-share"></i> <span class="shares-count">${post.shares?.length || 0}</span> shares</small>
+                    </div>
+                    
+                    <div class="engagement-actions d-flex border-top pt-3">
+                        <button class="btn btn-sm btn-link text-decoration-none" id="like-btn">
+                            <i class="bi bi-heart"></i> Like
+                        </button>
+                        <button class="btn btn-sm btn-link text-decoration-none" id="share-btn">
+                            <i class="bi bi-share"></i> Share
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        container.innerHTML = html;
+        
+        // Add event listeners
+        document.getElementById('like-btn').addEventListener('click', () => likePost(post.id));
+        document.getElementById('share-btn').addEventListener('click', () => sharePost(post.id));
+    }
+    
+    // Fetch post comments
+    function fetchComments() {
+        fetch(`/api/comments/?post=${postId}`)
+            .then(response => response.json())
+            .then(comments => {
+                // Hide loading indicator
+                document.getElementById('comments-loading').classList.add('d-none');
+                document.getElementById('comments-list').classList.remove('d-none');
+                
+                // Render comments
+                renderComments(comments);
+            })
+            .catch(error => {
+                document.getElementById('comments-loading').classList.add('d-none');
+                document.getElementById('comments-list').innerHTML = `
+                    <p class="text-muted">Failed to load comments.</p>
+                `;
+            });
+    }
+    
+    // Render comments
+    function renderComments(comments) {
+        const container = document.getElementById('comments-list');
+        const template = document.getElementById('comment-template');
+        
+        if (comments.length === 0) {
+            container.innerHTML = '<p class="text-muted">No comments yet. Be the first to comment!</p>';
+            return;
+        }
+        
+        container.innerHTML = '';
+        
+        comments.forEach(comment => {
+            const commentElement = document.importNode(template.content, true);
+            
+            // Set comment data
+            commentElement.querySelector('.comment-author').textContent = comment.author.username;
+            commentElement.querySelector('.comment-content').textContent = comment.content;
+            
+            // Set comment date
+            const commentDate = new Date(comment.created_at);
+            commentElement.querySelector('.comment-date').textContent = commentDate.toLocaleDateString();
+            
+            container.appendChild(commentElement);
+        });
+    }
+    
+    // Fetch related posts
+    function fetchRelatedPosts(universityId, companyId) {
+        let url = '/api/posts/?ordering=-created_at&limit=5';
+        
+        if (universityId) {
+            url += `&university=${universityId}`;
+        } else if (companyId) {
+            url += `&company=${companyId}`;
+        }
+        
+        fetch(url)
+            .then(response => response.json())
+            .then(posts => {
+                const container = document.getElementById('related-posts');
+                
+                // Filter out current post
+                posts = posts.filter(post => post.id.toString() !== postId);
+                
+                if (posts.length === 0) {
+                    container.innerHTML = '<p class="text-muted mb-0">No related posts available.</p>';
+                    return;
+                }
+                
+                let html = '<ul class="list-group list-group-flush">';
+                posts.forEach(post => {
+                    html += `
+                        <li class="list-group-item px-0">
+                            <a href="/posts/${post.id}/" class="text-decoration-none">
+                                ${post.title}
+                            </a>
+                            <div class="small text-muted">by ${post.author.username}</div>
+                        </li>
+                    `;
+                });
+                html += '</ul>';
+                
+                container.innerHTML = html;
+            })
+            .catch(error => {
+                document.getElementById('related-posts').innerHTML = `
+                    <p class="text-muted mb-0">Failed to load related posts.</p>
+                `;
+            });
+    }
+    
+    // Like a post
+    function likePost(postId) {
+        fetch(`/api/posts/${postId}/like/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Update like count
+            const likesCountElement = document.querySelector('.likes-count');
+            likesCountElement.textContent = parseInt(likesCountElement.textContent) + 1;
+        })
+        .catch(error => console.error('Error liking post:', error));
+    }
+    
+    // Share a post
+    function sharePost(postId) {
+        const shareText = prompt('Share with:');
+        
+        if (shareText === null) return;
+        
+        fetch(`/api/posts/${postId}/share/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: JSON.stringify({ shared_with: shareText })
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Update share count
+            const sharesCountElement = document.querySelector('.shares-count');
+            sharesCountElement.textContent = parseInt(sharesCountElement.textContent) + 1;
+            alert('Post shared successfully!');
+        })
+        .catch(error => console.error('Error sharing post:', error));
+    }
+    
+    // Add a comment
+    document.getElementById('comment-form').addEventListener('submit', function(event) {
+        event.preventDefault();
+        
+        const content = document.getElementById('comment-content').value;
+        
+        fetch('/api/comments/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: JSON.stringify({
+                post: postId,
+                content: content
+            })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to add comment');
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Clear form
+            document.getElementById('comment-form').reset();
+            
+            // Refresh comments
+            fetchComments();
+            
+            // Update comment count
+            const commentsCountElement = document.querySelector('.comments-count');
+            commentsCountElement.textContent = parseInt(commentsCountElement.textContent) + 1;
+        })
+        .catch(error => {
+            console.error('Error adding comment:', error);
+            alert('Error adding comment: ' + error.message);
+        });
+    });
+    
+    // Get CSRF token
+    function getCsrfToken() {
+        const cookies = document.cookie.split(';');
+        for (let cookie of cookies) {
+            const [name, value] = cookie.trim().split('=');
+            if (name === 'csrftoken') {
+                return value;
+            }
+        }
+        return '';
+    }
+    
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+        fetchPost();
+    });
+</script>
+{% endblock %} 

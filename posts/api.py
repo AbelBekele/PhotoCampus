@@ -1,18 +1,35 @@
-from rest_framework import viewsets, permissions, filters
+from rest_framework import viewsets, permissions, filters, throttling
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Post, Comment, Like, Share
 from .serializers import PostSerializer, CommentSerializer, LikeSerializer, ShareSerializer
-from django.db.models import Q, Count
+from django.db.models import Q, Count, F, Prefetch
 from django.utils import timezone
 from datetime import timedelta
 from django.core.cache import cache
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+from rest_framework import status
+
+class PostRateThrottle(throttling.UserRateThrottle):
+    rate = '20/day'
+    scope = 'post_create'
+
+class LikeRateThrottle(throttling.UserRateThrottle):
+    rate = '200/day'
+    scope = 'like'
 
 class PostViewSet(viewsets.ModelViewSet):
     """
     API endpoint that allows posts to be viewed or edited.
+    
+    This viewset automatically provides `list`, `create`, `retrieve`,
+    `update` and `destroy` actions.
+    
+    Additionally, it provides custom actions for liking, unliking, 
+    sharing posts, and generating a personalized home feed.
     """
     queryset = Post.objects.all().order_by('-created_at')
     serializer_class = PostSerializer
@@ -22,38 +39,125 @@ class PostViewSet(viewsets.ModelViewSet):
     search_fields = ['title', 'content', 'location', 'event_name']
     ordering_fields = ['created_at', 'updated_at', 'title']
     
+    def get_throttles(self):
+        """
+        Return the throttles that should be used, based on action.
+        """
+        if self.action == 'create':
+            throttle_classes = [PostRateThrottle]
+        elif self.action in ['like', 'unlike']:
+            throttle_classes = [LikeRateThrottle]
+        else:
+            throttle_classes = []
+        return [throttle() for throttle in throttle_classes]
+    
+    def get_queryset(self):
+        """
+        Customize queryset with optimized performance using select_related and prefetch_related.
+        Also restrict access to private posts unless user is a member of the organization.
+        """
+        user = self.request.user
+        queryset = Post.objects.select_related(
+            'author', 'university', 'company', 'department'
+        ).prefetch_related(
+            Prefetch('comments', queryset=Comment.objects.select_related('author').order_by('-created_at')),
+            'likes', 
+            'shares'
+        )
+        
+        # If not authenticated, only show public posts
+        if not user.is_authenticated:
+            return queryset.filter(is_private=False)
+            
+        # If authenticated but detail view, apply permission check in get_object
+        if self.action == 'retrieve':
+            return queryset
+            
+        # For list view, filter based on user's organizations
+        return queryset.filter(
+            Q(is_private=False) | 
+            Q(author=user) |
+            Q(university__in=user.administered_universities.all()) |
+            Q(university__in=[m.university for m in user.organization_memberships.all() if m.university]) |
+            Q(company__in=[m.company for m in user.organization_memberships.all() if m.company])
+        ).distinct()
+    
+    def get_object(self):
+        """
+        Override to check if user can access a private post.
+        """
+        obj = super().get_object()
+        user = self.request.user
+        
+        # If the post is public or user is the author, allow access
+        if not obj.is_private or obj.author == user:
+            return obj
+            
+        # Check if user is a member or admin of the organization
+        if (obj.university and 
+            (obj.university in user.administered_universities.all() or
+             obj.university in [m.university for m in user.organization_memberships.all() if m.university])):
+            return obj
+            
+        if (obj.company and 
+            (obj.company in user.administered_companies.all() or
+             obj.company in [m.company for m in user.organization_memberships.all() if m.company])):
+            return obj
+            
+        # If none of the above, deny access
+        self.permission_denied(
+            self.request, 
+            message="You do not have permission to access this private post."
+        )
+    
     def perform_create(self, serializer):
-        """When a new post is created, invalidate any home feed caches"""
+        """
+        When a new post is created, invalidate any home feed caches.
+        """
         result = serializer.save(author=self.request.user)
         
-        # Invalidate cache for all users
-        # In a real-world scenario, you might want to be more selective
-        # about which caches to invalidate
-        cache_keys = cache.keys('home_feed_*')
-        if cache_keys:
-            cache.delete_many(cache_keys)
+        # Invalidate cache for relevant users
+        # Use a more targeted approach by only invalidating caches for users 
+        # who might see this post in their feed
+        if not result.is_private:
+            # For public posts, invalidate everyone's cache
+            cache_keys = cache.keys('home_feed_*')
+            if cache_keys:
+                cache.delete_many(cache_keys)
+        else:
+            # For private posts, only invalidate for organization members
+            if result.university:
+                org_users = [
+                    *[admin.id for admin in result.university.admins.all()],
+                    *[m.user.id for m in result.university.memberships.all()]
+                ]
+            elif result.company:
+                org_users = [
+                    *[admin.id for admin in result.company.admins.all()],
+                    *[m.user.id for m in result.company.memberships.all()]
+                ]
+            else:
+                # Personal private post, only visible to author
+                org_users = [self.request.user.id]
+                
+            for user_id in org_users:
+                cache_keys = cache.keys(f'home_feed_{user_id}_*')
+                if cache_keys:
+                    cache.delete_many(cache_keys)
             
         return result
-    
-    @action(detail=True, methods=['post'])
-    def like(self, request, pk=None):
-        post = self.get_object()
-        Like.objects.get_or_create(post=post, user=request.user)
-        return Response({'status': 'post liked'})
-    
-    @action(detail=True, methods=['post'])
-    def unlike(self, request, pk=None):
-        post = self.get_object()
-        Like.objects.filter(post=post, user=request.user).delete()
-        return Response({'status': 'post unliked'})
-    
-    @action(detail=True, methods=['post'])
-    def share(self, request, pk=None):
-        post = self.get_object()
-        shared_with = request.data.get('shared_with', '')
-        Share.objects.create(post=post, user=request.user, shared_with=shared_with)
-        return Response({'status': 'post shared'})
 
+    @swagger_auto_schema(
+        operation_description="Get personalized home feed",
+        manual_parameters=[
+            openapi.Parameter('page', openapi.IN_QUERY, description="Page number", type=openapi.TYPE_INTEGER),
+            openapi.Parameter('page_size', openapi.IN_QUERY, description="Number of posts per page", type=openapi.TYPE_INTEGER)
+        ],
+        responses={
+            200: PostSerializer(many=True),
+            401: "Authentication required"
+        }
+    )
     @action(detail=False, methods=['get'])
     def home_feed(self, request):
         """
@@ -61,10 +165,15 @@ class PostViewSet(viewsets.ModelViewSet):
         1. User's organization memberships
         2. Post engagement (likes, comments, shares)
         3. Content recency
+        
+        Posts are ranked by a combination of relevance factors including
+        recency, engagement metrics, and organization relevance.
+        
+        For authenticated users only.
         """
         user = request.user
         if not user.is_authenticated:
-            return Response({'error': 'Authentication required'}, status=401)
+            return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
             
         # Get params
         page_size = int(request.query_params.get('page_size', 20))
@@ -93,7 +202,9 @@ class PostViewSet(viewsets.ModelViewSet):
         ).select_related(
             'author', 'university', 'company', 'department'
         ).prefetch_related(
-            'likes', 'comments', 'shares'
+            Prefetch('comments', queryset=Comment.objects.select_related('author').order_by('-created_at')),
+            'likes', 
+            'shares'
         ).distinct()
         
         # Posts the user has interacted with
@@ -108,7 +219,9 @@ class PostViewSet(viewsets.ModelViewSet):
             like_count=Count('likes', distinct=True),
             comment_count=Count('comments', distinct=True),
             share_count=Count('shares', distinct=True),
-            total_engagement=Count('likes', distinct=True) + Count('comments', distinct=True) * 2 + Count('shares', distinct=True) * 3,
+            total_engagement=Count('likes', distinct=True) + 
+                            Count('comments', distinct=True) * 2 + 
+                            Count('shares', distinct=True) * 3,
             # Posts from user's organizations get a boost
             org_relevance=Count(
                 'university', 
@@ -118,8 +231,10 @@ class PostViewSet(viewsets.ModelViewSet):
                     company__in=[m.company for m in user.organization_memberships.all() if m.company]
                 ),
                 distinct=True
-            ) * 5
-        ).order_by('-created_at', '-total_engagement', '-org_relevance')
+            ) * 5,
+            # Recency boost (decay factor)
+            days_old=timezone.now() - F('created_at'),
+        ).order_by('-created_at')
         
         # Paginate results
         start = (page - 1) * page_size
@@ -145,6 +260,49 @@ class PostViewSet(viewsets.ModelViewSet):
             cache.set(cache_key, serialized_data, 60 * 10)  # 10 minutes
         
         return Response(serialized_data)
+
+    @action(detail=True, methods=['post'])
+    def like(self, request, pk=None):
+        """
+        Like a post.
+        """
+        post = self.get_object()
+        user = request.user
+        
+        # Check if already liked
+        if Like.objects.filter(post=post, user=user).exists():
+            return Response({'status': 'already liked'})
+            
+        Like.objects.create(post=post, user=user)
+        return Response({'status': 'post liked'})
+        
+    @action(detail=True, methods=['post'])
+    def unlike(self, request, pk=None):
+        """
+        Unlike a post.
+        """
+        post = self.get_object()
+        user = request.user
+        
+        # Try to find and delete the like
+        like = Like.objects.filter(post=post, user=user).first()
+        if like:
+            like.delete()
+            return Response({'status': 'post unliked'})
+        
+        return Response({'status': 'post was not liked'})
+        
+    @action(detail=True, methods=['post'])
+    def share(self, request, pk=None):
+        """
+        Share a post.
+        
+        Optionally specify the platform or person the post was shared with.
+        """
+        post = self.get_object()
+        shared_with = request.data.get('shared_with', '')
+        Share.objects.create(post=post, user=request.user, shared_with=shared_with)
+        return Response({'status': 'post shared'})
 
 class CommentViewSet(viewsets.ModelViewSet):
     """
