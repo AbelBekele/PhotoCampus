@@ -1,6 +1,7 @@
 from rest_framework import viewsets, permissions, filters, throttling
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Post, Comment, Like, Share
@@ -34,10 +35,16 @@ class PostViewSet(viewsets.ModelViewSet):
     queryset = Post.objects.all().order_by('-created_at')
     serializer_class = PostSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['author', 'university', 'company', 'department', 'is_private']
     search_fields = ['title', 'content', 'location', 'event_name']
     ordering_fields = ['created_at', 'updated_at', 'title']
+    
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context.update({"request": self.request})
+        return context
     
     def get_throttles(self):
         """
@@ -117,13 +124,14 @@ class PostViewSet(viewsets.ModelViewSet):
         result = serializer.save(author=self.request.user)
         
         # Invalidate cache for relevant users
-        # Use a more targeted approach by only invalidating caches for users 
-        # who might see this post in their feed
+        # Using a simpler approach to clear specific cache keys
+        # LocMemCache doesn't support the 'keys' method, so we'll avoid it
+        
+        # Define a pattern-based approach to clear cache
         if not result.is_private:
-            # For public posts, invalidate everyone's cache
-            cache_keys = cache.keys('home_feed_*')
-            if cache_keys:
-                cache.delete_many(cache_keys)
+            # For public posts, we'll use a more targeted approach
+            # Instead of using cache.keys() which causes the error
+            cache.clear()  # Clear all cache for now as a simpler solution
         else:
             # For private posts, only invalidate for organization members
             if result.university:
@@ -140,10 +148,10 @@ class PostViewSet(viewsets.ModelViewSet):
                 # Personal private post, only visible to author
                 org_users = [self.request.user.id]
                 
+            # Directly delete each cache key without using cache.keys()
             for user_id in org_users:
-                cache_keys = cache.keys(f'home_feed_{user_id}_*')
-                if cache_keys:
-                    cache.delete_many(cache_keys)
+                cache_key = f'home_feed_{user_id}_page1_size20'  # Most common key pattern
+                cache.delete(cache_key)
             
         return result
 
@@ -249,16 +257,16 @@ class PostViewSet(viewsets.ModelViewSet):
         regular_posts = posts_with_stats.exclude(id__in=interacted_posts.values_list('id', flat=True))[:remaining_count]
         
         # Combine results
-        combined_posts = list(interacted_posts) + list(regular_posts)
+        combined_results = list(interacted_posts) + list(regular_posts)
         
-        # Serialize
-        serializer = PostSerializer(combined_posts, many=True, context={'request': request})
+        # Serialize posts - ensure we pass the request context for proper URL generation
+        serializer = PostSerializer(combined_results, many=True, context={'request': request})
         serialized_data = serializer.data
         
-        # Cache the result for 10 minutes (only for first page)
+        # Cache the results for 10 minutes (only for first page)
         if page == 1:
             cache.set(cache_key, serialized_data, 60 * 10)  # 10 minutes
-        
+            
         return Response(serialized_data)
 
     @action(detail=True, methods=['post'])

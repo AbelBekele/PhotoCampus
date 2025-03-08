@@ -29,6 +29,11 @@ class PostFilter(django_filters.FilterSet):
     author_username = django_filters.CharFilter(field_name='author__username', lookup_expr='exact')
     search = django_filters.CharFilter(method='filter_search')
     
+    # Add filters for organizations
+    university_id = django_filters.CharFilter(field_name='university__id', lookup_expr='exact')
+    company_id = django_filters.CharFilter(field_name='company__id', lookup_expr='exact')
+    department_id = django_filters.CharFilter(field_name='department__id', lookup_expr='exact')
+    
     def filter_search(self, queryset, name, value):
         return queryset.filter(
             Q(title__icontains=value) | 
@@ -40,7 +45,7 @@ class PostFilter(django_filters.FilterSet):
     
     class Meta:
         model = Post
-        fields = ['title', 'content', 'author', 'created_at']
+        fields = ['title', 'content', 'author', 'created_at', 'university_id', 'company_id', 'department_id']
 
 class PostType(DjangoObjectType):
     class Meta:
@@ -263,23 +268,65 @@ class CreatePost(graphene.Mutation):
     class Arguments:
         title = graphene.String(required=True)
         content = graphene.String(required=True)
-        # Note: Image upload is not directly supported in GraphQL
-        # We would need to implement a separate endpoint for that
+        university_id = graphene.ID(required=False)
+        department_id = graphene.ID(required=False)
+        company_id = graphene.ID(required=False)
+        location = graphene.String(required=False)
+        event_name = graphene.String(required=False)
+        event_date = graphene.Date(required=False)
+        is_private = graphene.Boolean(required=False, default_value=False)
+        image = graphene.String(required=False)
 
     post = graphene.Field(PostType)
 
-    def mutate(self, info, title, content):
+    def mutate(self, info, title, content, university_id=None, department_id=None, company_id=None,
+               location=None, event_name=None, event_date=None, is_private=False, image=None):
         user = info.context.user
         if user.is_anonymous:
             raise Exception('You must be logged in to create a post!')
         
+        # Create basic post with required fields
         post = Post(
             title=title,
             content=content,
-            author=user
+            author=user,
+            is_private=is_private,
+            location=location or "",
+            event_name=event_name or "",
+            event_date=event_date,
+            image=image
         )
-        post.save()
         
+        # Handle organization associations
+        if university_id:
+            try:
+                # Import the University model
+                from organizations.models import University
+                post.university = University.objects.get(pk=university_id)
+                
+                # If university and department are provided, attach department
+                if department_id:
+                    from organizations.models import Department
+                    department = Department.objects.get(pk=department_id)
+                    # Verify department belongs to university
+                    if department.university.id == post.university.id:
+                        post.department = department
+                    else:
+                        raise Exception('Department does not belong to the specified university')
+            except University.DoesNotExist:
+                raise Exception('University not found')
+            except Department.DoesNotExist:
+                raise Exception('Department not found')
+                
+        # Handle company association
+        elif company_id:
+            try:
+                from organizations.models import Company
+                post.company = Company.objects.get(pk=company_id)
+            except Company.DoesNotExist:
+                raise Exception('Company not found')
+        
+        post.save()
         return CreatePost(post=post)
 
 # Mutations

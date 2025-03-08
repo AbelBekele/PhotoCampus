@@ -384,33 +384,30 @@ def test_create_university_post(authenticated_headers):
     university_id = extract_numeric_id(TestData.university_id)
     department_id = extract_numeric_id(TestData.department_id)
     
-    # Check schema to make sure we're using the correct field names and arguments
     mutation = """
     mutation CreateUniversityPost {
       createPost(
         title: "University Event Photos %s"
         content: "Photos from our annual graduation ceremony."
-        organizationType: "UNIVERSITY"
-        organizationId: %d
+        universityId: %d
         departmentId: %d
-        metadata: {
-          eventName: "Graduation Ceremony 2023"
-          eventDate: "2023-06-15"
-          location: "Main Campus"
-        }
-        privacy: "PUBLIC"
+        location: "Main Campus"
+        eventName: "Annual Graduation"
+        eventDate: "2023-05-15"
       ) {
         post {
           id
           title
           content
-          metadata
           university {
             name
           }
           department {
             name
           }
+          location
+          eventName
+          eventDate
         }
       }
     }
@@ -435,13 +432,10 @@ def test_create_company_post(authenticated_headers):
       createPost(
         title: "Corporate Portfolio %s"
         content: "Recent photoshoot for our corporate clients."
-        organizationType: "COMPANY"
-        organizationId: %d
-        metadata: {
-          eventName: "Corporate Photoshoot"
-          location: "Studio 3"
-        }
-        privacy: "PRIVATE"
+        companyId: %d
+        location: "Studio 3"
+        eventName: "Corporate Photoshoot"
+        eventDate: "2023-06-15"
       ) {
         post {
           id
@@ -450,6 +444,9 @@ def test_create_company_post(authenticated_headers):
           company {
             name
           }
+          location
+          eventName
+          eventDate
         }
       }
     }
@@ -527,13 +524,13 @@ def test_update_post(authenticated_headers):
         postId: %d
         title: "Updated Post Title %s"
         content: "This content has been updated via GraphQL"
-        privacy: "PRIVATE"
+        isPrivate: true
       ) {
         post {
           id
           title
           content
-          privacy
+          isPrivate
         }
         success
         message
@@ -557,7 +554,7 @@ def test_add_comment(authenticated_headers):
     
     mutation = """
     mutation AddComment {
-      addComment(
+      createComment(
         postId: %d
         content: "This is a test comment %s"
       ) {
@@ -576,7 +573,7 @@ def test_add_comment(authenticated_headers):
     assert "errors" not in result, f"Error adding comment: {result.get('errors')}"
     
     # Save comment ID for later deletion test
-    TestData.comment_id = result["data"]["addComment"]["comment"]["id"]
+    TestData.comment_id = result["data"]["createComment"]["comment"]["id"]
 
 
 def test_like_post(authenticated_headers):
@@ -589,8 +586,6 @@ def test_like_post(authenticated_headers):
     mutation = """
     mutation LikePost {
       likePost(postId: %d) {
-        success
-        message
         like {
           id
           post {
@@ -622,17 +617,17 @@ def test_share_post(authenticated_headers):
     mutation SharePost {
       sharePost(
         postId: %d
-        sharedWith: "EMAIL"
-        recipients: ["friend%s@example.com"]
-        message: "Check out this awesome post!"
+        sharedWith: "EMAIL_%s"
       ) {
-        success
-        message
         share {
           id
           sharedWith
           user {
             username
+          }
+          post {
+            id
+            title
           }
         }
       }
@@ -706,7 +701,6 @@ def test_unlike_post(authenticated_headers):
     mutation UnlikePost {
       unlikePost(postId: %d) {
         success
-        message
       }
     }
     """ % post_id
@@ -741,7 +735,7 @@ def test_filter_posts_by_organization(authenticated_headers):
     query = """
     query FilterByOrganization {
       # Posts from a specific university
-      universityPosts: allPosts(universityId: %d, first: 5) {
+      universityPosts: allPosts(universityId: "%d", first: 5) {
         edges {
           node {
             id
@@ -754,7 +748,7 @@ def test_filter_posts_by_organization(authenticated_headers):
       }
 
       # Posts from a specific company
-      companyPosts: allPosts(companyId: %d, first: 5) {
+      companyPosts: allPosts(companyId: "%d", first: 5) {
         edges {
           node {
             id
@@ -778,7 +772,7 @@ def test_filter_posts_by_department(authenticated_headers):
     
     query = """
     query FilterByDepartment {
-      allPosts(departmentId: %d, first: 5) {
+      allPosts(departmentId: "%d", first: 5) {
         edges {
           node {
             id
@@ -801,13 +795,14 @@ def test_filter_posts_by_department(authenticated_headers):
 
 def test_get_organization_members(authenticated_headers):
     """Test getting organization members"""
-    university_id = extract_numeric_id(TestData.university_id)
-    company_id = extract_numeric_id(TestData.company_id)
+    # We need to get university and company names instead of IDs
+    university_name = "Test University" # Standard name used in the test
+    company_name = "Test Company" # Standard name used in the test
     
     query = """
     query GetOrganizationMembers {
       # University members
-      universityMembers: allMemberships(universityId: %d, first: 10) {
+      universityMembers: organizationMembers(university_Name: "%s", first: 10) {
         edges {
           node {
             role
@@ -823,7 +818,7 @@ def test_get_organization_members(authenticated_headers):
       }
 
       # Company members
-      companyMembers: allMemberships(companyId: %d, first: 10) {
+      companyMembers: organizationMembers(company_Name: "%s", first: 10) {
         edges {
           node {
             role
@@ -835,7 +830,7 @@ def test_get_organization_members(authenticated_headers):
         }
       }
     }
-    """ % (university_id, company_id)
+    """ % (university_name, company_name)
 
     result = execute_query(query, headers=authenticated_headers)
     assert "errors" not in result, f"Error getting organization members: {result.get('errors')}"

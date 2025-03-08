@@ -22,6 +22,7 @@ from graphene_django.views import GraphQLView
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import TemplateView
 from django.contrib.auth.decorators import login_required
+from django.http import HttpResponseNotFound
 
 # Import for Swagger documentation
 from rest_framework import permissions
@@ -85,3 +86,11 @@ urlpatterns = [
 # Serve media files in development
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+else:
+    # In production, Django shouldn't serve media files itself.
+    # This is just a placeholder to avoid URL pattern errors in non-debug environment
+    # In production, your web server (Nginx, Apache, etc.) should handle media files
+    # or you could use a CDN for better performance
+    urlpatterns += [
+        path('media/<path:path>', lambda request, path: HttpResponseNotFound(), name='media'),
+    ]

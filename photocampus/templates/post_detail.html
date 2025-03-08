@@ -90,7 +90,11 @@
     function fetchPost() {
         postId = getPostId();
         
-        fetch(`/api/posts/${postId}/`)
+        fetch(`/api/posts/${postId}/`, {
+            method: 'GET',
+            credentials: 'same-origin',
+            cache: 'no-cache' // Important: don't use cached data
+        })
             .then(response => {
                 if (!response.ok) {
                     throw new Error('Post not found');
@@ -98,6 +102,8 @@
                 return response.json();
             })
             .then(post => {
+                console.log('Post response:', post);
+                
                 // Hide loading indicator
                 document.getElementById('post-loading').classList.add('d-none');
                 document.getElementById('post-content').classList.remove('d-none');
@@ -110,12 +116,19 @@
                 
                 // Fetch related posts
                 fetchRelatedPosts(post.university?.id, post.company?.id);
+                
+                // Double check like count from API
+                setTimeout(() => {
+                    verifyLikeCount(postId);
+                }, 500);
             })
             .catch(error => {
+                console.error('Error loading post:', error);
                 document.getElementById('post-loading').classList.add('d-none');
                 document.getElementById('post-content').innerHTML = `
                     <div class="alert alert-danger">
-                        ${error.message}
+                        <p>Error: ${error.message}</p>
+                        <a href="/" class="btn btn-primary mt-2">Return to Home</a>
                     </div>
                 `;
             });
@@ -124,6 +137,20 @@
     // Render the post
     function renderPost(post) {
         const container = document.getElementById('post-content');
+        const currentUserId = getCurrentUserId();
+        
+        // Check if user already liked this post from API data
+        let userLiked = post.likes && post.likes.some(like => like.user && like.user.id === currentUserId);
+        
+        // Also check localStorage for like state (in case it was liked on another page)
+        if (!userLiked) {
+            userLiked = localStorage.getItem(`liked_post_${post.id}`) === 'true';
+        }
+        
+        // If liked from localStorage but not in API data, store it in localStorage
+        if (userLiked && !(post.likes && post.likes.some(like => like.user && like.user.id === currentUserId))) {
+            localStorage.setItem(`liked_post_${post.id}`, 'true');
+        }
         
         // Build HTML for the post
         let html = `
@@ -155,17 +182,20 @@
                     <p class="card-text">${post.content}</p>
                     
                     <div class="engagement-stats d-flex text-muted mb-2">
-                        <small class="me-3"><i class="bi bi-heart"></i> <span class="likes-count">${post.likes?.length || 0}</span> likes</small>
+                        <small class="me-3"><i class="bi bi-heart${userLiked ? '-fill text-danger' : ''}"></i> <span class="likes-count">${post.likes_count || 0}</span> likes</small>
                         <small class="me-3"><i class="bi bi-chat"></i> <span class="comments-count">${post.comments?.length || 0}</span> comments</small>
-                        <small><i class="bi bi-share"></i> <span class="shares-count">${post.shares?.length || 0}</span> shares</small>
+                        <small><i class="bi bi-share"></i> <span class="shares-count">${post.shares_count || 0}</span> shares</small>
                     </div>
                     
                     <div class="engagement-actions d-flex border-top pt-3">
-                        <button class="btn btn-sm btn-link text-decoration-none" id="like-btn">
-                            <i class="bi bi-heart"></i> Like
+                        <button class="btn btn-sm btn-link text-decoration-none ${userLiked ? 'text-danger active' : ''}" id="like-btn" data-liked="${userLiked}">
+                            <i class="bi bi-${userLiked ? 'heart-fill' : 'heart'}"></i> ${userLiked ? 'Unlike' : 'Like'}
                         </button>
                         <button class="btn btn-sm btn-link text-decoration-none" id="share-btn">
                             <i class="bi bi-share"></i> Share
+                        </button>
+                        <button class="btn btn-sm btn-link text-decoration-none" id="copy-link-btn">
+                            <i class="bi bi-link-45deg"></i> Copy Link
                         </button>
                     </div>
                 </div>
@@ -175,26 +205,65 @@
         container.innerHTML = html;
         
         // Add event listeners
-        document.getElementById('like-btn').addEventListener('click', () => likePost(post.id));
+        document.getElementById('like-btn').addEventListener('click', handleLikeButtonClick);
         document.getElementById('share-btn').addEventListener('click', () => sharePost(post.id));
+        document.getElementById('copy-link-btn').addEventListener('click', () => copyPostLink(post.id));
+    }
+    
+    // Handle like button click based on current state
+    function handleLikeButtonClick() {
+        const likeBtn = document.getElementById('like-btn');
+        const isLiked = likeBtn.getAttribute('data-liked') === 'true';
+        
+        if (isLiked) {
+            unlikePost(postId);
+        } else {
+            likePost(postId);
+        }
+    }
+    
+    // Get current user ID from a data attribute in the body
+    function getCurrentUserId() {
+        const userIdMeta = document.querySelector('meta[name="user-id"]');
+        if (userIdMeta) {
+            return userIdMeta.getAttribute('content');
+        }
+        return null;
     }
     
     // Fetch post comments
     function fetchComments() {
-        fetch(`/api/comments/?post=${postId}`)
-            .then(response => response.json())
-            .then(comments => {
+        fetch(`/api/comments/?post=${postId}`, {
+            method: 'GET',
+            credentials: 'same-origin'
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Failed to load comments');
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Comments response:', data);
+                
                 // Hide loading indicator
                 document.getElementById('comments-loading').classList.add('d-none');
                 document.getElementById('comments-list').classList.remove('d-none');
+                
+                // Handle paginated response
+                const comments = data.results || data;
                 
                 // Render comments
                 renderComments(comments);
             })
             .catch(error => {
+                console.error('Error loading comments:', error);
                 document.getElementById('comments-loading').classList.add('d-none');
+                document.getElementById('comments-list').classList.remove('d-none');
                 document.getElementById('comments-list').innerHTML = `
-                    <p class="text-muted">Failed to load comments.</p>
+                    <div class="alert alert-danger">
+                        <p>Failed to load comments: ${error.message}</p>
+                    </div>
                 `;
             });
     }
@@ -204,7 +273,7 @@
         const container = document.getElementById('comments-list');
         const template = document.getElementById('comment-template');
         
-        if (comments.length === 0) {
+        if (!comments || comments.length === 0) {
             container.innerHTML = '<p class="text-muted">No comments yet. Be the first to comment!</p>';
             return;
         }
@@ -215,8 +284,16 @@
             const commentElement = document.importNode(template.content, true);
             
             // Set comment data
-            commentElement.querySelector('.comment-author').textContent = comment.author.username;
-            commentElement.querySelector('.comment-content').textContent = comment.content;
+            commentElement.querySelector('.comment-author').textContent = comment.author ? comment.author.username : 'Unknown User';
+            commentElement.querySelector('.comment-content').textContent = comment.content || '';
+            
+            // Set profile image if available
+            const profileImg = commentElement.querySelector('img');
+            if (comment.author && comment.author.profile_picture) {
+                profileImg.src = comment.author.profile_picture;
+            } else {
+                profileImg.src = '/static/images/default_profile.png';
+            }
             
             // Set comment date
             const commentDate = new Date(comment.created_at);
@@ -236,27 +313,39 @@
             url += `&company=${companyId}`;
         }
         
-        fetch(url)
-            .then(response => response.json())
-            .then(posts => {
+        fetch(url, {
+            method: 'GET',
+            credentials: 'same-origin'
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Failed to load related posts');
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Related posts response:', data);
                 const container = document.getElementById('related-posts');
                 
-                // Filter out current post
-                posts = posts.filter(post => post.id.toString() !== postId);
+                // Handle paginated response
+                const posts = data.results || data;
                 
-                if (posts.length === 0) {
+                // Filter out current post
+                const filteredPosts = posts.filter(post => post.id.toString() !== postId);
+                
+                if (!filteredPosts || filteredPosts.length === 0) {
                     container.innerHTML = '<p class="text-muted mb-0">No related posts available.</p>';
                     return;
                 }
                 
                 let html = '<ul class="list-group list-group-flush">';
-                posts.forEach(post => {
+                filteredPosts.forEach(post => {
                     html += `
                         <li class="list-group-item px-0">
                             <a href="/posts/${post.id}/" class="text-decoration-none">
-                                ${post.title}
+                                ${post.title || 'Untitled Post'}
                             </a>
-                            <div class="small text-muted">by ${post.author.username}</div>
+                            <div class="small text-muted">by ${post.author ? post.author.username : 'Unknown User'}</div>
                         </li>
                     `;
                 });
@@ -265,52 +354,13 @@
                 container.innerHTML = html;
             })
             .catch(error => {
+                console.error('Error loading related posts:', error);
                 document.getElementById('related-posts').innerHTML = `
-                    <p class="text-muted mb-0">Failed to load related posts.</p>
+                    <div class="alert alert-danger">
+                        <p class="mb-0">Failed to load related posts: ${error.message}</p>
+                    </div>
                 `;
             });
-    }
-    
-    // Like a post
-    function likePost(postId) {
-        fetch(`/api/posts/${postId}/like/`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCsrfToken()
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            // Update like count
-            const likesCountElement = document.querySelector('.likes-count');
-            likesCountElement.textContent = parseInt(likesCountElement.textContent) + 1;
-        })
-        .catch(error => console.error('Error liking post:', error));
-    }
-    
-    // Share a post
-    function sharePost(postId) {
-        const shareText = prompt('Share with:');
-        
-        if (shareText === null) return;
-        
-        fetch(`/api/posts/${postId}/share/`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCsrfToken()
-            },
-            body: JSON.stringify({ shared_with: shareText })
-        })
-        .then(response => response.json())
-        .then(data => {
-            // Update share count
-            const sharesCountElement = document.querySelector('.shares-count');
-            sharesCountElement.textContent = parseInt(sharesCountElement.textContent) + 1;
-            alert('Post shared successfully!');
-        })
-        .catch(error => console.error('Error sharing post:', error));
     }
     
     // Add a comment
@@ -318,13 +368,26 @@
         event.preventDefault();
         
         const content = document.getElementById('comment-content').value;
+        if (!content.trim()) {
+            alert('Please enter a comment');
+            return;
+        }
+        
+        const csrfToken = getCsrfToken();
+        const submitButton = this.querySelector('button[type="submit"]');
+        const originalButtonText = submitButton.innerHTML;
+        
+        // Show loading state
+        submitButton.disabled = true;
+        submitButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Posting...';
         
         fetch('/api/comments/', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRFToken': getCsrfToken()
+                'X-CSRFToken': csrfToken
             },
+            credentials: 'same-origin',
             body: JSON.stringify({
                 post: postId,
                 content: content
@@ -337,8 +400,14 @@
             return response.json();
         })
         .then(data => {
+            console.log('Comment response:', data);
+            
             // Clear form
             document.getElementById('comment-form').reset();
+            
+            // Reset button state
+            submitButton.disabled = false;
+            submitButton.innerHTML = originalButtonText;
             
             // Refresh comments
             fetchComments();
@@ -346,15 +415,434 @@
             // Update comment count
             const commentsCountElement = document.querySelector('.comments-count');
             commentsCountElement.textContent = parseInt(commentsCountElement.textContent) + 1;
+            
+            // Dispatch a custom event that other pages can listen for
+            window.dispatchEvent(new CustomEvent('comment-added', { 
+                detail: { postId: postId }
+            }));
+            
+            // Also refresh the current post to get updated data
+            refreshCurrentPost();
         })
         .catch(error => {
             console.error('Error adding comment:', error);
+            
+            // Reset button state
+            submitButton.disabled = false;
+            submitButton.innerHTML = originalButtonText;
+            
             alert('Error adding comment: ' + error.message);
         });
     });
     
+    // Share a post
+    function sharePost(postId) {
+        const shareText = prompt('Share with:');
+        
+        if (shareText === null) return;
+        
+        // Optimistically update share count
+        const sharesCountElement = document.querySelector('.shares-count');
+        const originalSharesCount = parseInt(sharesCountElement.textContent);
+        sharesCountElement.textContent = originalSharesCount + 1;
+        
+        const csrfToken = getCsrfToken();
+        
+        fetch(`/api/posts/${postId}/share/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({ shared_with: shareText })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to share post');
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Share response:', data);
+            
+            alert('Post shared successfully!');
+            
+            // Dispatch a custom event that other pages can listen for
+            window.dispatchEvent(new CustomEvent('post-shared', { 
+                detail: { postId: postId }
+            }));
+            
+            // Refresh the current post to get updated data
+            refreshCurrentPost();
+        })
+        .catch(error => {
+            console.error('Error sharing post:', error);
+            
+            // Revert optimistic UI changes on error
+            sharesCountElement.textContent = originalSharesCount;
+            
+            alert('Error sharing post: ' + error.message);
+        });
+    }
+    
+    // Copy post link to clipboard
+    function copyPostLink(postId) {
+        // Create the post URL
+        const postUrl = `${window.location.origin}/posts/${postId}/`;
+        
+        // Use clipboard API to copy the URL
+        navigator.clipboard.writeText(postUrl)
+            .then(() => {
+                // Show success message
+                const copyBtn = document.getElementById('copy-link-btn');
+                const originalText = copyBtn.innerHTML;
+                copyBtn.innerHTML = '<i class="bi bi-check-lg"></i> Copied!';
+                
+                // Reset button text after 2 seconds
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalText;
+                }, 2000);
+            })
+            .catch(err => {
+                console.error('Could not copy link: ', err);
+                alert('Failed to copy link. Please try again.');
+            });
+    }
+    
+    // Verify like count directly from API
+    function verifyLikeCount(postId) {
+        fetch(`/api/posts/${postId}/likes/`, {
+            method: 'GET',
+            credentials: 'same-origin',
+            cache: 'no-cache' // Prevent caching
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to verify like count');
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Like count verification:', data);
+            
+            // Update like count directly from the API
+            const likesCount = data.length || 0;
+            const likesCountElement = document.querySelector('.likes-count');
+            if (likesCountElement) {
+                likesCountElement.textContent = likesCount;
+            }
+            
+            // Check if current user has liked the post
+            const currentUserId = getCurrentUserId();
+            if (!currentUserId) return;
+            
+            const userLiked = data.some(like => like.user && like.user.id == currentUserId);
+            
+            // Update localStorage
+            if (userLiked) {
+                localStorage.setItem(`liked_post_${postId}`, 'true');
+            } else {
+                localStorage.removeItem(`liked_post_${postId}`);
+            }
+            
+            // Update UI if needed
+            const likeBtn = document.getElementById('like-btn');
+            if (likeBtn) {
+                const currentLiked = likeBtn.getAttribute('data-liked') === 'true';
+                
+                if (userLiked && !currentLiked) {
+                    // Update to liked state
+                    likeBtn.classList.add('text-danger', 'active');
+                    likeBtn.innerHTML = '<i class="bi bi-heart-fill"></i> Unlike';
+                    likeBtn.setAttribute('data-liked', 'true');
+                    
+                    const heartIcon = document.querySelector('.engagement-stats .bi-heart');
+                    if (heartIcon) {
+                        heartIcon.classList.remove('bi-heart');
+                        heartIcon.classList.add('bi-heart-fill', 'text-danger');
+                    }
+                } else if (!userLiked && currentLiked) {
+                    // Update to unliked state
+                    likeBtn.classList.remove('text-danger', 'active');
+                    likeBtn.innerHTML = '<i class="bi bi-heart"></i> Like';
+                    likeBtn.setAttribute('data-liked', 'false');
+                    
+                    const heartIcon = document.querySelector('.engagement-stats .bi-heart-fill');
+                    if (heartIcon) {
+                        heartIcon.classList.remove('bi-heart-fill', 'text-danger');
+                        heartIcon.classList.add('bi-heart');
+                    }
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error verifying like count:', error);
+        });
+    }
+    
+    // Refresh the current post
+    function refreshCurrentPost() {
+        // Show loading indicator
+        const postContent = document.getElementById('post-content');
+        const loadingIndicator = document.createElement('div');
+        loadingIndicator.className = 'position-absolute top-0 end-0 p-2';
+        loadingIndicator.innerHTML = '<div class="spinner-border spinner-border-sm text-primary" role="status"><span class="visually-hidden">Refreshing...</span></div>';
+        
+        if (postContent.firstElementChild) {
+            postContent.firstElementChild.style.position = 'relative';
+            postContent.firstElementChild.appendChild(loadingIndicator);
+        }
+        
+        // First verify like count directly
+        verifyLikeCount(postId);
+        
+        fetch(`/api/posts/${postId}/`, {
+            method: 'GET',
+            credentials: 'same-origin',
+            cache: 'no-cache', // Important: don't use cached data
+            headers: {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to refresh post');
+            }
+            return response.json();
+        })
+        .then(post => {
+            console.log('Refreshed post data:', post);
+            
+            // Remove loading indicator if it exists
+            if (postContent.firstElementChild && postContent.firstElementChild.contains(loadingIndicator)) {
+                postContent.firstElementChild.removeChild(loadingIndicator);
+            }
+            
+            // Update engagement stats
+            const likesCountElement = document.querySelector('.likes-count');
+            if (likesCountElement) {
+                likesCountElement.textContent = post.likes_count || 0;
+            }
+            
+            const commentsCountElement = document.querySelector('.comments-count');
+            if (commentsCountElement) {
+                commentsCountElement.textContent = post.comments?.length || 0;
+            }
+            
+            const sharesCountElement = document.querySelector('.shares-count');
+            if (sharesCountElement) {
+                sharesCountElement.textContent = post.shares_count || 0;
+            }
+            
+            // Check if user already liked this post
+            const currentUserId = getCurrentUserId();
+            const userLiked = post.likes && post.likes.some(like => like.user && like.user.id === currentUserId);
+            
+            // Update localStorage
+            if (userLiked) {
+                localStorage.setItem(`liked_post_${postId}`, 'true');
+            } else {
+                localStorage.removeItem(`liked_post_${postId}`);
+            }
+            
+            // Update like button state
+            const likeBtn = document.getElementById('like-btn');
+            if (likeBtn) {
+                const currentLiked = likeBtn.getAttribute('data-liked') === 'true';
+                
+                if (userLiked && !currentLiked) {
+                    // Update to liked state
+                    likeBtn.classList.add('text-danger', 'active');
+                    likeBtn.innerHTML = '<i class="bi bi-heart-fill"></i> Unlike';
+                    likeBtn.setAttribute('data-liked', 'true');
+                    
+                    const heartIcon = document.querySelector('.engagement-stats .bi-heart');
+                    if (heartIcon) {
+                        heartIcon.classList.remove('bi-heart');
+                        heartIcon.classList.add('bi-heart-fill', 'text-danger');
+                    }
+                } else if (!userLiked && currentLiked) {
+                    // Update to unliked state
+                    likeBtn.classList.remove('text-danger', 'active');
+                    likeBtn.innerHTML = '<i class="bi bi-heart"></i> Like';
+                    likeBtn.setAttribute('data-liked', 'false');
+                    
+                    const heartIcon = document.querySelector('.engagement-stats .bi-heart-fill');
+                    if (heartIcon) {
+                        heartIcon.classList.remove('bi-heart-fill', 'text-danger');
+                        heartIcon.classList.add('bi-heart');
+                    }
+                }
+            }
+            
+            // Apply a highlight effect to show the post has been updated
+            if (postContent.firstElementChild) {
+                postContent.firstElementChild.classList.add('border-primary');
+                setTimeout(() => {
+                    postContent.firstElementChild.classList.remove('border-primary');
+                }, 1000);
+            }
+            
+            // Double check the like count after a brief delay
+            setTimeout(() => {
+                verifyLikeCount(postId);
+            }, 500);
+        })
+        .catch(error => {
+            console.error('Error refreshing post:', error);
+            
+            // Remove loading indicator if it exists
+            if (postContent.firstElementChild && postContent.firstElementChild.contains(loadingIndicator)) {
+                postContent.firstElementChild.removeChild(loadingIndicator);
+            }
+            
+            // Still try to verify like count
+            verifyLikeCount(postId);
+        });
+    }
+    
+    // Like a post
+    function likePost(postId) {
+        // Optimistically update like UI
+        const likesCountElement = document.querySelector('.likes-count');
+        const originalLikesCount = parseInt(likesCountElement.textContent);
+        likesCountElement.textContent = originalLikesCount + 1;
+        
+        const likeBtn = document.getElementById('like-btn');
+        likeBtn.classList.add('text-danger', 'active');
+        likeBtn.innerHTML = '<i class="bi bi-heart-fill"></i> Unlike';
+        likeBtn.setAttribute('data-liked', 'true');
+        
+        const heartIcon = document.querySelector('.engagement-stats .bi-heart');
+        if (heartIcon) {
+            heartIcon.classList.remove('bi-heart');
+            heartIcon.classList.add('bi-heart-fill', 'text-danger');
+        }
+        
+        // Store in localStorage
+        localStorage.setItem(`liked_post_${postId}`, 'true');
+        
+        const csrfToken = getCsrfToken();
+        
+        fetch(`/api/posts/${postId}/like/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            credentials: 'same-origin'
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to like post');
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Like response:', data);
+            
+            // Dispatch a custom event that other pages can listen for
+            window.dispatchEvent(new CustomEvent('post-liked', { 
+                detail: { postId: postId }
+            }));
+            
+            // Refresh to get updated data after a delay
+            setTimeout(() => refreshCurrentPost(), 500);
+        })
+        .catch(error => {
+            console.error('Error liking post:', error);
+            
+            // Revert optimistic UI changes on error
+            likesCountElement.textContent = originalLikesCount;
+            likeBtn.classList.remove('text-danger', 'active');
+            likeBtn.innerHTML = '<i class="bi bi-heart"></i> Like';
+            likeBtn.setAttribute('data-liked', 'false');
+            
+            if (heartIcon) {
+                heartIcon.classList.remove('bi-heart-fill', 'text-danger');
+                heartIcon.classList.add('bi-heart');
+            }
+            
+            localStorage.removeItem(`liked_post_${postId}`);
+            
+            alert('Error liking post: ' + error.message);
+        });
+    }
+    
+    // Unlike a post
+    function unlikePost(postId) {
+        // Optimistically update unlike UI
+        const likesCountElement = document.querySelector('.likes-count');
+        const originalLikesCount = parseInt(likesCountElement.textContent);
+        likesCountElement.textContent = Math.max(0, originalLikesCount - 1);
+        
+        const likeBtn = document.getElementById('like-btn');
+        likeBtn.classList.remove('text-danger', 'active');
+        likeBtn.innerHTML = '<i class="bi bi-heart"></i> Like';
+        likeBtn.setAttribute('data-liked', 'false');
+        
+        const heartIcon = document.querySelector('.engagement-stats .bi-heart-fill');
+        if (heartIcon) {
+            heartIcon.classList.remove('bi-heart-fill', 'text-danger');
+            heartIcon.classList.add('bi-heart');
+        }
+        
+        // Remove from localStorage
+        localStorage.removeItem(`liked_post_${postId}`);
+        
+        const csrfToken = getCsrfToken();
+        
+        fetch(`/api/posts/${postId}/unlike/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            credentials: 'same-origin'
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to unlike post');
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Unlike response:', data);
+            
+            // Dispatch a custom event that other pages can listen for
+            window.dispatchEvent(new CustomEvent('post-unliked', { 
+                detail: { postId: postId }
+            }));
+            
+            // Refresh to get updated data after a delay
+            setTimeout(() => refreshCurrentPost(), 500);
+        })
+        .catch(error => {
+            console.error('Error unliking post:', error);
+            
+            // Revert optimistic UI changes on error
+            likesCountElement.textContent = originalLikesCount;
+            likeBtn.classList.add('text-danger', 'active');
+            likeBtn.innerHTML = '<i class="bi bi-heart-fill"></i> Unlike';
+            likeBtn.setAttribute('data-liked', 'true');
+            
+            if (heartIcon) {
+                heartIcon.classList.remove('bi-heart');
+                heartIcon.classList.add('bi-heart-fill', 'text-danger');
+            }
+            
+            localStorage.setItem(`liked_post_${postId}`, 'true');
+            
+            alert('Error unliking post: ' + error.message);
+        });
+    }
+    
     // Get CSRF token
     function getCsrfToken() {
+        // First try to get it from the cookie
         const cookies = document.cookie.split(';');
         for (let cookie of cookies) {
             const [name, value] = cookie.trim().split('=');
@@ -362,12 +850,141 @@
                 return value;
             }
         }
+        
+        // If not found in cookie, try to get it from the meta tag
+        const csrfTokenMeta = document.querySelector('meta[name="csrf-token"]');
+        if (csrfTokenMeta) {
+            return csrfTokenMeta.getAttribute('content');
+        }
+        
+        // If still not found, try to get it from a hidden input field
+        const csrfTokenInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+        if (csrfTokenInput) {
+            return csrfTokenInput.value;
+        }
+        
+        console.error('CSRF token not found!');
         return '';
     }
     
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
         fetchPost();
+        
+        // Check like status directly from API
+        setTimeout(() => {
+            const postId = getPostId();
+            if (postId) {
+                checkLikeStatus(postId);
+                verifyLikeCount(postId);
+            }
+        }, 1000); // Delay to ensure post is loaded first
+        
+        // Set up more frequent refresh of the post
+        setInterval(() => {
+            refreshCurrentPost();
+        }, 10000); // Refresh every 10 seconds
+        
+        // Force refresh on window focus
+        window.addEventListener('focus', function() {
+            refreshCurrentPost();
+            fetchComments();
+        });
+        
+        // Listen for like/unlike events from other pages
+        window.addEventListener('post-liked', function(event) {
+            const eventPostId = event.detail.postId;
+            if (eventPostId === postId) {
+                refreshCurrentPost();
+            }
+        });
+        
+        window.addEventListener('post-unliked', function(event) {
+            const eventPostId = event.detail.postId;
+            if (eventPostId === postId) {
+                refreshCurrentPost();
+            }
+        });
+        
+        // Listen for comment events
+        window.addEventListener('comment-added', function(event) {
+            const eventPostId = event.detail.postId;
+            if (eventPostId === postId) {
+                fetchComments();
+                refreshCurrentPost();
+            }
+        });
+        
+        // Listen for share events
+        window.addEventListener('post-shared', function(event) {
+            const eventPostId = event.detail.postId;
+            if (eventPostId === postId) {
+                refreshCurrentPost();
+            }
+        });
     });
+    
+    // Check like status directly from API
+    function checkLikeStatus(postId) {
+        const currentUserId = getCurrentUserId();
+        if (!currentUserId) return;
+        
+        fetch(`/api/likes/?post=${postId}&user=${currentUserId}`, {
+            method: 'GET',
+            credentials: 'same-origin'
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to check like status');
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Like status check:', data);
+            
+            // Check if user has liked the post
+            const hasLiked = data.results && data.results.length > 0;
+            
+            // Update localStorage
+            if (hasLiked) {
+                localStorage.setItem(`liked_post_${postId}`, 'true');
+            } else {
+                localStorage.removeItem(`liked_post_${postId}`);
+            }
+            
+            // Update UI if needed
+            const likeBtn = document.getElementById('like-btn');
+            if (likeBtn) {
+                const currentLiked = likeBtn.getAttribute('data-liked') === 'true';
+                
+                if (hasLiked && !currentLiked) {
+                    // Update to liked state
+                    likeBtn.classList.add('text-danger', 'active');
+                    likeBtn.innerHTML = '<i class="bi bi-heart-fill"></i> Unlike';
+                    likeBtn.setAttribute('data-liked', 'true');
+                    
+                    const heartIcon = document.querySelector('.engagement-stats .bi-heart');
+                    if (heartIcon) {
+                        heartIcon.classList.remove('bi-heart');
+                        heartIcon.classList.add('bi-heart-fill', 'text-danger');
+                    }
+                } else if (!hasLiked && currentLiked) {
+                    // Update to unliked state
+                    likeBtn.classList.remove('text-danger', 'active');
+                    likeBtn.innerHTML = '<i class="bi bi-heart"></i> Like';
+                    likeBtn.setAttribute('data-liked', 'false');
+                    
+                    const heartIcon = document.querySelector('.engagement-stats .bi-heart-fill');
+                    if (heartIcon) {
+                        heartIcon.classList.remove('bi-heart-fill', 'text-danger');
+                        heartIcon.classList.add('bi-heart');
+                    }
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error checking like status:', error);
+        });
+    }
 </script>
 {% endblock %} 
