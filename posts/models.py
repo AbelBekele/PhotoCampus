@@ -2,6 +2,8 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
 from django.core.validators import MinLengthValidator
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 class Post(models.Model):
     """Model representing a user post."""
@@ -147,3 +149,66 @@ class Follow(models.Model):
         
     def __str__(self):
         return f"{self.follower.username} follows {self.followed.username}"
+
+class FeedEntry(models.Model):
+    """Model representing a feed entry for a user.
+    
+    This model is used for persisting feed entries that are precomputed
+    for users through the fan-out-on-write pattern.
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='feed_entries',
+                           db_index=True)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='feed_appearances',
+                          db_index=True)
+    score = models.FloatField(default=0.0, 
+                           help_text="Relevance score for ranking", 
+                           db_index=True)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    
+    # Has the user viewed this entry?
+    viewed = models.BooleanField(default=False)
+    # Has the user interacted with this post?
+    interacted = models.BooleanField(default=False)
+    
+    def __str__(self):
+        return f"Feed entry for {self.user.username}: {self.post.title}"
+    
+    class Meta:
+        ordering = ['-score', '-created_at']
+        unique_together = ('user', 'post')
+        indexes = [
+            models.Index(fields=['user', 'score']),
+            models.Index(fields=['user', 'created_at']),
+            models.Index(fields=['user', 'viewed']),
+            models.Index(fields=['user', 'interacted']),
+        ]
+
+class CelebrityPostCache(models.Model):
+    """
+    Model to store celebrity post data that was previously stored in Redis.
+    This replaces the Redis-based storage with a database-backed solution.
+    """
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='celebrity_posts')
+    post = models.ForeignKey('Post', on_delete=models.CASCADE, related_name='celebrity_cache')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        unique_together = ('author', 'post')
+        indexes = [
+            models.Index(fields=['author']),
+            models.Index(fields=['post']),
+            models.Index(fields=['created_at']),
+        ]
+
+@receiver(post_save, sender=Post)
+def distribute_post_on_save(sender, instance, created, **kwargs):
+    """
+    When a post is created, trigger a Celery task to distribute it to feeds.
+    Uses the fan-out-on-write pattern.
+    """
+    # Temporarily disabled until Redis and Celery are configured
+    pass
+    # if created:
+    #     # Import here to avoid circular imports
+    #     from .tasks import distribute_post_to_feeds
+    #     distribute_post_to_feeds.delay(instance.id)

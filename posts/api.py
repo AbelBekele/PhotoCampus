@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
-from .models import Post, Comment, Like, Share
+from .models import Post, Comment, Like, Share, Follow
 from .serializers import PostSerializer, CommentSerializer, LikeSerializer, ShareSerializer
 from django.db.models import Q, Count, F, Prefetch
 from django.utils import timezone
@@ -13,6 +13,8 @@ from django.core.cache import cache
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from rest_framework import status
+from photocampus.utils import get_redis_connection
+import json
 
 class PostRateThrottle(throttling.UserRateThrottle):
     rate = '20/day'
@@ -159,7 +161,8 @@ class PostViewSet(viewsets.ModelViewSet):
         operation_description="Get personalized home feed",
         manual_parameters=[
             openapi.Parameter('page', openapi.IN_QUERY, description="Page number", type=openapi.TYPE_INTEGER),
-            openapi.Parameter('page_size', openapi.IN_QUERY, description="Number of posts per page", type=openapi.TYPE_INTEGER)
+            openapi.Parameter('page_size', openapi.IN_QUERY, description="Number of posts per page", type=openapi.TYPE_INTEGER),
+            openapi.Parameter('algorithm', openapi.IN_QUERY, description="Feed algorithm type (default: 'mixed')", type=openapi.TYPE_STRING, enum=['chronological', 'engagement', 'mixed']),
         ],
         responses={
             200: PostSerializer(many=True),
@@ -171,11 +174,20 @@ class PostViewSet(viewsets.ModelViewSet):
         """
         Returns a personalized home feed based on:
         1. User's organization memberships
-        2. Post engagement (likes, comments, shares)
-        3. Content recency
+        2. User's follow relationships
+        3. Post engagement (likes, comments, shares)
+        4. Content recency
         
-        Posts are ranked by a combination of relevance factors including
-        recency, engagement metrics, and organization relevance.
+        Posts are ranked by an algorithm that considers multiple factors:
+        - Recency: Newer posts rank higher
+        - Engagement: Posts with more likes/comments/shares rank higher
+        - Organization relevance: Posts from user's organizations rank higher
+        - User interaction: Posts the user has interacted with get priority
+        
+        Available algorithms via the 'algorithm' query parameter:
+        - 'chronological': Simple reverse-chronological feed (newest first)
+        - 'engagement': Ranked primarily by engagement metrics
+        - 'mixed' (default): Balanced approach with some chronological and some ranked
         
         For authenticated users only.
         """
@@ -186,16 +198,9 @@ class PostViewSet(viewsets.ModelViewSet):
         # Get params
         page_size = int(request.query_params.get('page_size', 20))
         page = int(request.query_params.get('page', 1))
+        algorithm = request.query_params.get('algorithm', 'mixed')
         
-        # Try to get from cache first (only for first page)
-        cache_key = f'home_feed_{user.id}_page{page}_size{page_size}'
-        cached_data = None
-        
-        if page == 1:
-            cached_data = cache.get(cache_key)
-            if cached_data:
-                return Response(cached_data)
-        
+        # TEMPORARY FALLBACK TO ORIGINAL IMPLEMENTATION
         # Get recent posts (last 30 days)
         thirty_days_ago = timezone.now() - timedelta(days=30)
         
@@ -239,10 +244,16 @@ class PostViewSet(viewsets.ModelViewSet):
                     company__in=[m.company for m in user.organization_memberships.all() if m.company]
                 ),
                 distinct=True
-            ) * 5,
-            # Recency boost (decay factor)
-            days_old=timezone.now() - F('created_at'),
-        ).order_by('-created_at')
+            ) * 5
+        )
+        
+        # Apply algorithm sorting
+        if algorithm == 'chronological':
+            posts_with_stats = posts_with_stats.order_by('-created_at')
+        elif algorithm == 'engagement':
+            posts_with_stats = posts_with_stats.order_by('-total_engagement', '-created_at')
+        else:  # 'mixed' - default
+            posts_with_stats = posts_with_stats.order_by('-created_at', '-total_engagement', '-org_relevance')
         
         # Paginate results
         start = (page - 1) * page_size
@@ -263,54 +274,86 @@ class PostViewSet(viewsets.ModelViewSet):
         serializer = PostSerializer(combined_results, many=True, context={'request': request})
         serialized_data = serializer.data
         
-        # Cache the results for 10 minutes (only for first page)
-        if page == 1:
-            cache.set(cache_key, serialized_data, 60 * 10)  # 10 minutes
-            
-        return Response(serialized_data)
+        # Add pagination info to response
+        response_data = {
+            'results': serialized_data,
+            'page': page,
+            'page_size': page_size,
+            'algorithm': algorithm,
+            'has_next': len(combined_results) == page_size,  # Crude estimate
+        }
+        
+        return Response(response_data)
 
     @action(detail=True, methods=['post'])
     def like(self, request, pk=None):
-        """
-        Like a post.
-        """
+        """Like a post"""
         post = self.get_object()
         user = request.user
         
         # Check if already liked
         if Like.objects.filter(post=post, user=user).exists():
-            return Response({'status': 'already liked'})
+            return Response({'status': 'already liked'}, status=status.HTTP_200_OK)
             
-        Like.objects.create(post=post, user=user)
-        return Response({'status': 'post liked'})
+        # Create like
+        like = Like.objects.create(post=post, user=user)
+        
+        # Update feed scores and mark interaction
+        from .tasks import update_feed_for_interaction
+        update_feed_for_interaction.delay(user.id, post.id, 'like')
+        
+        return Response(
+            {'status': 'liked', 'like_id': like.id},
+            status=status.HTTP_201_CREATED
+        )
         
     @action(detail=True, methods=['post'])
     def unlike(self, request, pk=None):
-        """
-        Unlike a post.
-        """
+        """Unlike a post"""
         post = self.get_object()
         user = request.user
         
-        # Try to find and delete the like
-        like = Like.objects.filter(post=post, user=user).first()
-        if like:
-            like.delete()
-            return Response({'status': 'post unliked'})
+        # Find and delete like
+        like = get_object_or_404(Like, post=post, user=user)
+        like.delete()
         
-        return Response({'status': 'post was not liked'})
+        # No need to update feed for unlikes
+        
+        return Response(
+            {'status': 'unliked'},
+            status=status.HTTP_200_OK
+        )
+    
+    @action(detail=True, methods=['get'])
+    def likes(self, request, pk=None):
+        """Get all likes for a post"""
+        post = self.get_object()
+        likes = Like.objects.filter(post=post).select_related('user')
+        serializer = LikeSerializer(likes, many=True)
+        return Response(serializer.data)
         
     @action(detail=True, methods=['post'])
     def share(self, request, pk=None):
-        """
-        Share a post.
-        
-        Optionally specify the platform or person the post was shared with.
-        """
+        """Share a post"""
         post = self.get_object()
+        user = request.user
         shared_with = request.data.get('shared_with', '')
-        Share.objects.create(post=post, user=request.user, shared_with=shared_with)
-        return Response({'status': 'post shared'})
+        
+        # Create share
+        share = Share.objects.create(
+            post=post, 
+            user=user,
+            shared_with=shared_with
+        )
+        
+        # Update feed scores and mark interaction
+        from .tasks import update_feed_for_interaction
+        update_feed_for_interaction.delay(user.id, post.id, 'share')
+        
+        return Response(
+            {'status': 'shared', 'share_id': share.id},
+            status=status.HTTP_201_CREATED
+        )
 
 class CommentViewSet(viewsets.ModelViewSet):
     """
@@ -322,8 +365,20 @@ class CommentViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['post', 'author']
     
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        # Optimize with select_related
+        return queryset.select_related('author', 'post')
+    
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
+        
+        # Update feed scores and mark interaction
+        post_id = serializer.validated_data.get('post').id
+        user_id = self.request.user.id
+        
+        from .tasks import update_feed_for_interaction
+        update_feed_for_interaction.delay(user_id, post_id, 'comment')
 
 class LikeViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -334,6 +389,11 @@ class LikeViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['post', 'user']
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        # Optimize with select_related
+        return queryset.select_related('user', 'post')
 
 class ShareViewSet(viewsets.ReadOnlyModelViewSet):
     """

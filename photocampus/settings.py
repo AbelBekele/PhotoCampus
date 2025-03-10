@@ -13,10 +13,16 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 from pathlib import Path
 import os
 from decouple import config
+from celery.schedules import crontab
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Retrieve Redis configuration values
+REDIS_HOST = config('REDIS_HOST', default='localhost')
+REDIS_PORT = config('REDIS_PORT', default='6379')
+REDIS_USERNAME = config('REDIS_USERNAME', default='')
+REDIS_PASSWORD = config('REDIS_PASSWORD', default='')
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
@@ -226,25 +232,83 @@ X_FRAME_OPTIONS = 'DENY'
 CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
 
-# Cache Settings
+# Celery Configuration - Enhanced
+CELERY_BROKER_URL = f"redis://{REDIS_USERNAME}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
+CELERY_RESULT_BACKEND = CELERY_BROKER_URL
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TASK_ALWAYS_EAGER = False
+
+# Redis connection handling settings
+CELERY_BROKER_CONNECTION_RETRY = True
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_CONNECTION_MAX_RETRIES = 10
+CELERY_BROKER_CONNECTION_TIMEOUT = 30
+
+# Task execution settings
+CELERY_TIMEZONE = TIME_ZONE  # Use your project's timezone
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 30 * 60  # Hard time limit (30 minutes)
+CELERY_TASK_SOFT_TIME_LIMIT = 15 * 60  # Soft time limit (15 minutes)
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 1000  # Restart worker after 1000 tasks
+CELERY_REDIS_MAX_CONNECTIONS = 20
+
+# Redis connection pool settings
+CELERY_REDIS_SOCKET_TIMEOUT = 5
+CELERY_REDIS_SOCKET_CONNECT_TIMEOUT = 5
+
+# Example Celery Beat Schedule - adjust tasks according to your app's needs
+from celery.schedules import crontab
+
+CELERY_BEAT_SCHEDULE = {
+    'example-periodic-task': {
+        'task': 'your_app.tasks.example_task',  # Replace with your actual task
+        'schedule': crontab(hour=3, minute=0),  # Run at 3:00 AM every day
+    },
+    'weekly-cleanup-task': {
+        'task': 'your_app.tasks.cleanup_task',  # Replace with your actual task
+        'schedule': crontab(day_of_week=0, hour=4, minute=0),  # Run at 4:00 AM every Sunday
+    },
+}
+
+# Cache settings for Redis
 CACHES = {
     'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'photocampus-cache',
-        'TIMEOUT': 300,  # 5 minutes
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': f"redis://{REDIS_USERNAME}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0",
         'OPTIONS': {
-            'MAX_ENTRIES': 1000
-        }
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'REDIS_CLIENT_KWARGS': {
+                'socket_timeout': 5,
+                'socket_connect_timeout': 5,
+            },
+            'CONNECTION_POOL_KWARGS': {
+                'max_connections': 50,
+            },
+        },
+        'TIMEOUT': 300,  # 5 minutes
     }
 }
 
-# In production, consider using Redis or Memcached for better performance:
-# CACHES = {
-#     'default': {
-#         'BACKEND': 'django_redis.cache.RedisCache',
-#         'LOCATION': 'redis://127.0.0.1:6379/1',
-#         'OPTIONS': {
-#             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-#         }
-#     }
-# }
+# Feed and interactions-related constants
+FEED_CACHE_TTL = 86400  # 24 hours in seconds
+FEED_CACHE_ITEMS_PER_USER = 200
+
+# Redis connection aliases - ensures consistent DB index usage across the application
+REDIS_CONNECTIONS = {
+    'default': {
+        'LOCATION': f"redis://{REDIS_USERNAME}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/1",
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'REDIS_CLIENT_KWARGS': {
+                'socket_timeout': 5,
+                'socket_connect_timeout': 5,
+            },
+            'CONNECTION_POOL_KWARGS': {
+                'max_connections': 50,
+            },
+        }
+    }
+}

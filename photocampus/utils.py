@@ -2,8 +2,32 @@ from rest_framework.views import exception_handler
 from rest_framework.response import Response
 from rest_framework import status
 import logging
+from django_redis import get_redis_connection as django_get_redis_connection
+from django.conf import settings
+import redis
 
 logger = logging.getLogger(__name__)
+
+def get_redis_connection(alias="default"):
+    """
+    Wrapper around django_redis.get_redis_connection that ensures
+    consistent database usage across the application.
+    
+    This function should ONLY be used for caching purposes, not for
+    storing application data. Application data should be stored in
+    the primary database (PostgreSQL/SQLite).
+    """
+    try:
+        # Get the connection using django-redis, which is configured
+        # for caching in settings.py
+        return django_get_redis_connection(alias)
+    except Exception as e:
+        logger.error(f"Redis connection error with alias '{alias}': {str(e)}")
+        logger.warning("Redis should only be used for caching, not for application data storage.")
+        
+        # If the connection fails, log the error and raise an exception
+        # to prevent silent failures
+        raise RuntimeError(f"Redis connection failed: {str(e)}")
 
 def custom_exception_handler(exc, context):
     """
