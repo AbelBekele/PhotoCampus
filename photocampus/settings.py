@@ -93,24 +93,24 @@ WSGI_APPLICATION = 'photocampus.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
-    }
-}
-
-# Uncomment the PostgreSQL configuration when ready to use it
 # DATABASES = {
 #     'default': {
-#         'ENGINE': 'django.db.backends.postgresql',
-#         'NAME': config('DB_NAME', default='photocampus'),
-#         'USER': config('DB_USER', default='postgres'),
-#         'PASSWORD': config('DB_PASSWORD', default='postgres'),
-#         'HOST': config('DB_HOST', default='localhost'),
-#         'PORT': config('DB_PORT', default='5432'),
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
 #     }
 # }
+
+# Uncomment the PostgreSQL configuration when ready to use it
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('DB_NAME'),
+        'USER': config('DB_USER'),
+        'PASSWORD': config('DB_PASSWORD'),
+        'HOST': config('DB_HOST'),
+        'PORT': config('DB_PORT'),
+    }
+}
 
 
 # Password validation
@@ -169,11 +169,13 @@ GRAPHENE = {
 }
 
 # CORS settings
-CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only for development
-if not DEBUG:
-    CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', 
-                              default='*', 
-                              cast=lambda v: [s.strip() for s in v.split(',')])
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
+CORS_ALLOW_HEADERS = ['accept', 'accept-encoding', 'authorization', 'content-type', 'dnt', 'origin', 'user-agent', 'x-csrftoken', 'x-requested-with']
+ALLOWED_HOSTS = ['*']
+
+
 
 # JWT settings
 AUTHENTICATION_BACKENDS = [
@@ -312,3 +314,23 @@ REDIS_CONNECTIONS = {
         }
     }
 }
+
+# Email Configuration
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = config('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
+# Site URL for links in emails
+SITE_URL = config('SITE_URL', default='http://localhost:3000')
+
+# Add invitation email task to the Celery Beat schedule
+CELERY_BEAT_SCHEDULE.update({
+    'process-pending-invitations': {
+        'task': 'organizations.tasks.process_pending_invitations',
+        'schedule': crontab(minute='*/30'),  # Run every 30 minutes
+    },
+})

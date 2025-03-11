@@ -17,6 +17,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ['id', 'username', 'email', 'first_name', 'last_name']
         read_only_fields = ['id']
+        ref_name = "OrganizationsUserSerializer"
 
 class UniversitySerializer(serializers.ModelSerializer):
     logo = serializers.ImageField(max_length=None, use_url=True, required=False, allow_null=True)

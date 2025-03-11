@@ -18,9 +18,10 @@ This guide provides comprehensive instructions for deploying the PhotoCampus app
 
 Before you begin deployment, ensure you have:
 
-- A server running Linux (Ubuntu 20.04+ recommended)
-- Python 3.8+ installed
-- PostgreSQL 12+ installed
+- A server running Linux (Ubuntu 22.04+ recommended)
+- Python 3.10+ installed
+- PostgreSQL 14+ installed
+- Redis server for caching and Celery
 - Domain name configured with DNS (for HTTPS)
 - SSH access to your server
 
@@ -36,8 +37,8 @@ Before you begin deployment, ensure you have:
    ```bash
    sudo apt update
    sudo apt install git
-   git clone https://github.com/yourusername/photocampus.git
-   cd photocampus
+   git clone https://github.com/AbelBekele/PhotoCampus.git
+   cd PhotoCampus
    ```
 
 3. **Set up virtual environment**:
@@ -76,6 +77,11 @@ Before you begin deployment, ensure you have:
    
    # CORS settings
    CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
+   
+   # Redis settings
+   REDIS_URL=redis://localhost:6379/0
+   CELERY_BROKER_URL=redis://localhost:6379/1
+   CELERY_RESULT_BACKEND=redis://localhost:6379/2
    ```
 
 ## Database Configuration
@@ -94,7 +100,7 @@ Before you begin deployment, ensure you have:
    ```
 
 2. **Set up the database in Django**:
-   Uncomment and configure the PostgreSQL section in `settings.py`:
+   The PostgreSQL configuration should already be in place in the settings file. Ensure it matches your environment variables:
    ```python
    DATABASES = {
        'default': {
@@ -162,18 +168,51 @@ Before you begin deployment, ensure you have:
    [Service]
    User=photocampus
    Group=www-data
-   WorkingDirectory=/home/photocampus/photocampus
-   ExecStart=/home/photocampus/photocampus/venv/bin/gunicorn \
+   WorkingDirectory=/home/photocampus/PhotoCampus
+   ExecStart=/home/photocampus/PhotoCampus/venv/bin/gunicorn \
              --access-logfile - \
              --workers 3 \
-             --bind unix:/home/photocampus/photocampus/photocampus.sock \
+             --bind unix:/home/photocampus/PhotoCampus/photocampus.sock \
              photocampus.wsgi:application
 
    [Install]
    WantedBy=multi-user.target
    ```
 
-3. **Install and configure Nginx**:
+3. **Create Celery worker and beat services**:
+   Create `/etc/systemd/system/photocampus-celery.service`:
+   ```
+   [Unit]
+   Description=PhotoCampus Celery Worker
+   After=network.target
+
+   [Service]
+   User=photocampus
+   Group=www-data
+   WorkingDirectory=/home/photocampus/PhotoCampus
+   ExecStart=/home/photocampus/PhotoCampus/venv/bin/celery -A photocampus worker -l info
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+   
+   Create `/etc/systemd/system/photocampus-celerybeat.service`:
+   ```
+   [Unit]
+   Description=PhotoCampus Celery Beat
+   After=network.target
+
+   [Service]
+   User=photocampus
+   Group=www-data
+   WorkingDirectory=/home/photocampus/PhotoCampus
+   ExecStart=/home/photocampus/PhotoCampus/venv/bin/celery -A photocampus beat -l info
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+4. **Install and configure Nginx**:
    ```bash
    sudo apt install nginx
    ```
@@ -187,29 +226,34 @@ Before you begin deployment, ensure you have:
        location = /favicon.ico { access_log off; log_not_found off; }
        
        location /static/ {
-           root /home/photocampus/photocampus;
+           root /home/photocampus/PhotoCampus;
        }
        
        location /media/ {
-           root /home/photocampus/photocampus;
+           root /home/photocampus/PhotoCampus;
        }
        
        location / {
            include proxy_params;
-           proxy_pass http://unix:/home/photocampus/photocampus/photocampus.sock;
+           proxy_pass http://unix:/home/photocampus/PhotoCampus/photocampus.sock;
        }
    }
    ```
 
-4. **Enable the site and restart services**:
+5. **Enable the site and start services**:
    ```bash
    sudo ln -s /etc/nginx/sites-available/photocampus /etc/nginx/sites-enabled
+   sudo systemctl daemon-reload
    sudo systemctl start photocampus
    sudo systemctl enable photocampus
+   sudo systemctl start photocampus-celery
+   sudo systemctl enable photocampus-celery
+   sudo systemctl start photocampus-celerybeat
+   sudo systemctl enable photocampus-celerybeat
    sudo systemctl restart nginx
    ```
 
-5. **Set up HTTPS with Let's Encrypt**:
+6. **Set up HTTPS with Let's Encrypt**:
    ```bash
    sudo apt install certbot python3-certbot-nginx
    sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
@@ -257,7 +301,7 @@ Before you begin deployment, ensure you have:
    CACHES = {
        'default': {
            'BACKEND': 'django_redis.cache.RedisCache',
-           'LOCATION': 'redis://127.0.0.1:6379/1',
+           'LOCATION': config('REDIS_URL', default='redis://127.0.0.1:6379/0'),
            'OPTIONS': {
                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
            }
@@ -267,6 +311,10 @@ Before you begin deployment, ensure you have:
    # Use Redis as session backend
    SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
    SESSION_CACHE_ALIAS = 'default'
+   
+   # Celery settings
+   CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://127.0.0.1:6379/1')
+   CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default='redis://127.0.0.1:6379/2')
    ```
 
 ## Monitoring and Logging
@@ -306,6 +354,24 @@ Before you begin deployment, ensure you have:
    sudo chown -R photocampus:www-data /var/log/photocampus
    ```
 
+3. **Setup Sentry (optional but recommended)**:
+   ```bash
+   pip install sentry-sdk
+   ```
+   
+   Add to settings.py:
+   ```python
+   import sentry_sdk
+   from sentry_sdk.integrations.django import DjangoIntegration
+   
+   sentry_sdk.init(
+       dsn=config('SENTRY_DSN', default=''),
+       integrations=[DjangoIntegration()],
+       traces_sample_rate=0.5,
+       send_default_pii=True
+   )
+   ```
+
 ## Deployment Checklist
 
 Before going live, verify these final items:
@@ -322,22 +388,30 @@ Before going live, verify these final items:
    - Comment functionality
    - Like and share mechanisms
    - Organization features
+   - Invitation system
+   - GraphQL API endpoints
+   - RESTful API endpoints
 
 3. **Performance testing**:
    - Database query optimization
    - Page load times
    - API response times
+   - Caching effectiveness
 
 4. **Setup regular backups**:
    ```bash
    # Example backup script for postgres
    pg_dump -U db_username photocampus > /path/to/backups/photocampus_$(date +%Y-%m-%d).sql
+   
+   # Media file backups
+   rsync -av /home/photocampus/PhotoCampus/media/ /path/to/backups/media/
    ```
 
 5. **Setup monitoring**:
    Consider implementing:
    - Server monitoring with Prometheus/Grafana
    - Error tracking with Sentry
+   - Redis monitoring for cache performance
 
 ## Troubleshooting
 
@@ -362,5 +436,10 @@ Common issues and their solutions:
    - Check directory permissions
    - Verify Nginx configuration for media files
    - Check disk space: `df -h`
+
+5. **Celery task issues**:
+   - Check Celery logs: `sudo journalctl -u photocampus-celery`
+   - Verify Redis is running: `sudo systemctl status redis-server`
+   - Test Celery manually: `celery -A photocampus worker --loglevel=debug`
 
 For additional support, refer to Django's documentation or open an issue in the project repository. 

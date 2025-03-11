@@ -156,6 +156,10 @@ class Invitation(models.Model):
     expires_at = models.DateTimeField(blank=True, null=True, db_index=True)
     responded_at = models.DateTimeField(blank=True, null=True)
     
+    # Email tracking fields
+    email_sent = models.BooleanField(default=False, help_text="Whether invitation email was sent")
+    last_email_attempt = models.DateTimeField(blank=True, null=True, help_text="When the last email attempt was made")
+    
     def __str__(self):
         org_name = self.university.name if self.university else self.company.name
         return f"Invitation to {org_name} for {self.email}"

@@ -51,14 +51,235 @@ mutation CreateUser {
   }
 }
 
-# Get current authenticated user
-query Me {
+# Get current user profile
+query MyProfile {
   me {
     id
     username
     email
     firstName
     lastName
+    profile {
+      bio
+      avatar
+    }
+    organizations {
+      id
+      name
+      __typename
+    }
+  }
+}
+
+# Update user profile
+mutation UpdateProfile {
+  updateProfile(
+    bio: "Photography enthusiast and CS student"
+    avatar: "base64encodedimage..."
+  ) {
+    profile {
+      bio
+      avatar
+    }
+  }
+}
+```
+
+## Organizations
+
+```graphql
+# Create university
+mutation CreateUniversity {
+  createUniversity(
+    name: "Tech University"
+    description: "A leading institution in technology education"
+    location: "San Francisco, CA"
+    website: "https://techuniversity.edu"
+    logo: "base64encodedimage..."
+  ) {
+    university {
+      id
+      name
+      description
+      location
+      createdAt
+    }
+  }
+}
+
+# Create department
+mutation CreateDepartment {
+  createDepartment(
+    universityId: "university-id-here"
+    name: "Computer Science"
+    description: "Department of Computer Science and Software Engineering"
+    headOfDepartment: "Dr. Jane Smith"
+  ) {
+    department {
+      id
+      name
+      description
+      university {
+        id
+        name
+      }
+    }
+  }
+}
+
+# Create company
+mutation CreateCompany {
+  createCompany(
+    name: "ProPhoto Studio"
+    description: "Professional photography services for all occasions"
+    industry: "Photography"
+    location: "New York, NY"
+    website: "https://prophoto.example.com"
+    logo: "base64encodedimage..."
+  ) {
+    company {
+      id
+      name
+      description
+      industry
+      location
+      createdAt
+    }
+  }
+}
+
+# Get university details
+query UniversityDetails {
+  university(id: "university-id-here") {
+    id
+    name
+    description
+    location
+    website
+    logo
+    departments {
+      id
+      name
+    }
+    members {
+      id
+      username
+      firstName
+      lastName
+    }
+    posts {
+      edges {
+        node {
+          id
+          title
+        }
+      }
+    }
+  }
+}
+
+# Get all universities
+query AllUniversities {
+  universities(first: 10) {
+    edges {
+      node {
+        id
+        name
+        location
+        departments {
+          id
+          name
+        }
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}
+
+# Get all companies
+query AllCompanies {
+  companies(first: 10) {
+    edges {
+      node {
+        id
+        name
+        industry
+        location
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}
+```
+
+## Invitations
+
+```graphql
+# Create invitation
+mutation CreateInvitation {
+  createInvitation(
+    email: "student@example.com"
+    organizationId: "university-id-here"
+    organizationType: UNIVERSITY
+    message: "Join our university community on PhotoCampus!"
+  ) {
+    invitation {
+      id
+      email
+      status
+      createdAt
+      expiresAt
+    }
+  }
+}
+
+# Accept invitation
+mutation AcceptInvitation {
+  acceptInvitation(token: "invitation-token-here") {
+    success
+    message
+    organization {
+      id
+      name
+      __typename
+    }
+  }
+}
+
+# Decline invitation
+mutation DeclineInvitation {
+  declineInvitation(token: "invitation-token-here") {
+    success
+    message
+  }
+}
+
+# List all invitations (admin only)
+query ListInvitations {
+  invitations(
+    status: PENDING  # or ACCEPTED, DECLINED, EXPIRED
+    first: 20
+  ) {
+    edges {
+      node {
+        id
+        email
+        status
+        createdAt
+        expiresAt
+        organization {
+          id
+          name
+          __typename
+        }
+      }
+    }
   }
 }
 ```
@@ -66,9 +287,40 @@ query Me {
 ## Posts
 
 ```graphql
-# Query all posts (paginated)
-query AllPosts {
-  allPosts(first: 5) {
+# Create post
+mutation CreatePost {
+  createPost(
+    title: "Campus Spring Festival 2023"
+    content: "Photos from this year's amazing spring festival on campus"
+    organizationId: "university-id-here"
+    organizationType: UNIVERSITY
+    departmentId: "department-id-here"
+    images: ["base64encodedimage1...", "base64encodedimage2..."]
+    tags: ["festival", "spring", "campus"]
+    location: "Main Campus Quad"
+    eventDate: "2023-04-15T13:00:00Z"
+    privacy: PUBLIC
+  ) {
+    post {
+      id
+      title
+      content
+      createdAt
+      images {
+        id
+        url
+      }
+      tags
+    }
+  }
+}
+
+# Get posts with pagination
+query GetPosts {
+  posts(
+    first: 10
+    orderBy: "-created_at"
+  ) {
     edges {
       node {
         id
@@ -78,8 +330,20 @@ query AllPosts {
         author {
           username
         }
+        organization {
+          id
+          name
+          __typename
+        }
+        images {
+          id
+          url
+        }
+        likesCount
+        commentsCount
+        tags
+        liked
       }
-      cursor
     }
     pageInfo {
       hasNextPage
@@ -88,88 +352,127 @@ query AllPosts {
   }
 }
 
-# Get optimized posts with stats
-query PostsWithStats {
-  postsWithStats(limit: 5) {
+# Get posts by organization
+query OrganizationPosts {
+  posts(
+    organizationId: "organization-id-here"
+    first: 10
+  ) {
+    edges {
+      node {
+        id
+        title
+        createdAt
+        images {
+          id
+          url
+        }
+        likesCount
+        commentsCount
+      }
+    }
+  }
+}
+
+# Get post details with comments
+query PostDetails {
+  post(id: "post-id-here") {
     id
     title
     content
     createdAt
     author {
       username
+      firstName
+      lastName
+    }
+    organization {
+      id
+      name
+      __typename
+    }
+    department {
+      id
+      name
+    }
+    images {
+      id
+      url
     }
     comments {
-      id
-      content
-      author {
-        username
-      }
-      createdAt
-    }
-    likes {
-      id
-      user {
-        username
+      edges {
+        node {
+          id
+          content
+          createdAt
+          author {
+            username
+          }
+        }
       }
     }
-    shares {
-      id
-      sharedWith
+    likesCount
+    commentsCount
+    sharesCount
+    liked
+    tags
+    location
+    eventDate
+  }
+}
+
+# Get personalized home feed
+query HomeFeed {
+  homeFeed(first: 20) {
+    edges {
+      node {
+        id
+        title
+        content
+        createdAt
+        author {
+          username
+          firstName
+          lastName
+        }
+        organization {
+          id
+          name
+          __typename
+        }
+        images {
+          id
+          url
+        }
+        likesCount
+        commentsCount
+        tags
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
     }
   }
 }
 
 # Search posts
 query SearchPosts {
-  searchPosts(searchTerm: "photo", limit: 5) {
-    id
-    title
-    content
-    author {
-      username
-    }
-  }
-}
-
-# Create a new post
-mutation CreatePost {
-  createPost(
-    title: "My First GraphQL Post"
-    content: "This post was created using GraphQL!"
+  posts(
+    search: "graduation"
+    first: 10
   ) {
-    post {
-      id
-      title
-      content
-      createdAt
+    edges {
+      node {
+        id
+        title
+        content
+        images {
+          id
+          url
+        }
+      }
     }
-  }
-}
-
-# Update a post
-mutation UpdatePost {
-  updatePost(
-    postId: "1"
-    title: "Updated Post Title"
-    content: "This content has been updated via GraphQL"
-    isPrivate: true
-  ) {
-    post {
-      id
-      title
-      content
-      isPrivate
-    }
-    success
-    message
-  }
-}
-
-# Delete a post
-mutation DeletePost {
-  deletePost(postId: "1") {
-    success
-    message
   }
 }
 ```
@@ -177,11 +480,33 @@ mutation DeletePost {
 ## Interactions
 
 ```graphql
-# Add a comment
+# Like a post
+mutation LikePost {
+  likePost(postId: "post-id-here") {
+    post {
+      id
+      likesCount
+      liked
+    }
+  }
+}
+
+# Unlike a post
+mutation UnlikePost {
+  unlikePost(postId: "post-id-here") {
+    post {
+      id
+      likesCount
+      liked
+    }
+  }
+}
+
+# Add comment
 mutation AddComment {
   createComment(
-    postId: "1"
-    content: "This is a great post! Thanks for sharing."
+    postId: "post-id-here"
+    content: "This looks amazing! Love the photos from the event."
   ) {
     comment {
       id
@@ -194,102 +519,82 @@ mutation AddComment {
   }
 }
 
-# Delete a comment
+# Delete comment
 mutation DeleteComment {
-  deleteComment(commentId: "1") {
-    success
-    message
-  }
-}
-
-# Like a post
-mutation LikePost {
-  likePost(postId: "1") {
-    like {
-      id
-      user {
-        username
-      }
-      post {
-        title
-      }
-    }
-  }
-}
-
-# Unlike a post
-mutation UnlikePost {
-  unlikePost(postId: "1") {
+  deleteComment(commentId: "comment-id-here") {
     success
   }
 }
 
-# Share a post
+# Share post
 mutation SharePost {
   sharePost(
-    postId: "1"
-    sharedWith: "LinkedIn"
+    postId: "post-id-here"
+    platform: "facebook"
   ) {
-    share {
-      id
-      sharedWith
-      createdAt
-      user {
-        username
-      }
-    }
+    success
+    shareUrl
   }
 }
 ```
 
-## Advanced Filtering
+## Advanced Queries
 
 ```graphql
-# Filter posts by title and author
-query FilteredPosts {
-  allPosts(title_Contains: "graduation", author_Username: "john") {
+# Get users by department
+query DepartmentUsers {
+  users(departmentId: "department-id-here", first: 20) {
     edges {
       node {
         id
-        title
-        content
-        author {
-          username
+        username
+        firstName
+        lastName
+        profile {
+          avatar
         }
       }
     }
   }
 }
 
-# Posts created in a date range
-query DateFilteredPosts {
-  allPosts(created_After: "2023-01-01", created_Before: "2023-12-31") {
+# Get posts with specific tags
+query PostsByTags {
+  posts(tags: ["graduation", "2023"], first: 15) {
     edges {
       node {
         id
         title
-        createdAt
+        tags
+        images {
+          id
+          url
+        }
+      }
+    }
+  }
+}
+
+# Get trending posts (most liked/commented in last week)
+query TrendingPosts {
+  trendingPosts(timeframe: WEEK, first: 10) {
+    edges {
+      node {
+        id
+        title
+        likesCount
+        commentsCount
+        images {
+          id
+          url
+        }
+        organization {
+          name
+        }
       }
     }
   }
 }
 ```
 
-## Tips for Using GraphQL Playground
-
-1. **Authentication**: After getting a token, add it to the HTTP Headers panel at the bottom:
-   ```json
-   {
-     "Authorization": "JWT your_token_here"
-   }
-   ```
-
-2. **Variables**: For queries with variables, use the Query Variables panel:
-   ```json
-   {
-     "postId": "1",
-     "content": "This is a comment with variables"
-   }
-   ```
-
-3. **Documentation**: Use the Documentation Explorer (right sidebar) to explore the schema and available operations. 
+For more detailed information about using the GraphQL API, see the [GraphQL API Guide](graphql_api_guide.md). For comprehensive testing procedures, see the [GraphQL Testing Guide](comprehensive_graphql_testing_guide.md). 

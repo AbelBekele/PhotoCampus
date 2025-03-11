@@ -1,22 +1,41 @@
 # PhotoCampus GraphQL Testing Guide
 
-This step-by-step guide will help you test all the features of the PhotoCampus platform using GraphQL queries and mutations. Each section builds on the previous ones to demonstrate the complete workflow.
+This step-by-step guide will help you test all the features of the PhotoCampus platform using GraphQL queries and mutations. Each section builds on the previous ones to demonstrate the complete workflow, mirroring the exact flow of the automated tests.
 
 ## Prerequisites
 
-- You need to have the PhotoCampus backend server running
+- You need to have the PhotoCampus backend server running locally
 - Access to the GraphQL endpoint (typically at http://localhost:8000/graphql/)
-- The ability to store and use the JWT token between requests
+- A tool to make GraphQL requests (like the GraphQL Playground, Postman, Insomnia, or even curl)
+- A way to store and reuse tokens, IDs, and other values between requests
+
+## Test Data Management
+
+Throughout this guide, you'll need to store and reuse various values like authentication tokens and IDs. Create a simple tracking system to store:
+
+```
+- token: JWT authentication token
+- refresh_token: JWT refresh token (if used)
+- username: Your test username
+- university_id: ID of the created university
+- department_id: ID of the created department
+- company_id: ID of the created company
+- post_ids: Map of different post IDs by type
+- comment_id: ID of the created comment
+- invitation_tokens: Tokens for various invitations
+```
 
 ## 1. Authentication and User Management
 
 ### 1.1. Create a New User
 
+First, create a unique test user:
+
 ```graphql
 mutation CreateTestUser {
   createUser(
-    username: "testuser"
-    email: "testuser@example.com"
+    username: "testuser[TIMESTAMP]"  # Add current timestamp to ensure uniqueness
+    email: "testuser[TIMESTAMP]@example.com"
     password: "securepassword123"
     firstName: "Test"
     lastName: "User"
@@ -32,21 +51,22 @@ mutation CreateTestUser {
 }
 ```
 
+Record the username for later login.
+
 ### 1.2. Log In and Get Authentication Token
 
 ```graphql
 mutation Login {
-  tokenAuth(username: "testuser", password: "securepassword123") {
+  tokenAuth(username: "YOUR_USERNAME", password: "securepassword123") {
     token
-    refreshToken
   }
 }
 ```
 
-Copy the token from the response. You'll need to include it in an HTTP header for authenticated requests:
+Store the token for use in subsequent authenticated requests. All authenticated requests should include the header:
 ```
 {
-  "Authorization": "JWT your_token_here"
+  "Authorization": "Bearer YOUR_TOKEN_HERE"
 }
 ```
 
@@ -54,13 +74,13 @@ Copy the token from the response. You'll need to include it in an HTTP header fo
 
 ```graphql
 mutation VerifyToken {
-  verifyToken(token: "your_token_here") {
+  verifyToken(token: "YOUR_TOKEN") {
     payload
   }
 }
 ```
 
-### 1.4. Get Current User Info (Authenticated)
+### 1.4. Get Current User Info
 
 ```graphql
 query GetCurrentUser {
@@ -101,7 +121,7 @@ mutation CreateUniversity {
 }
 ```
 
-Save the returned university ID for later use.
+Store the returned university ID.
 
 ### 2.2. Create a Department
 
@@ -109,7 +129,7 @@ Save the returned university ID for later use.
 mutation CreateDepartment {
   createDepartment(
     name: "Computer Science"
-    universityId: "1"  # Replace with the actual university ID from the previous step
+    universityId: "UNIVERSITY_ID"  # Use the stored university ID
     description: "Department of Computer Science and Information Technology"
   ) {
     department {
@@ -117,6 +137,7 @@ mutation CreateDepartment {
       name
       description
       university {
+        id
         name
       }
     }
@@ -124,7 +145,7 @@ mutation CreateDepartment {
 }
 ```
 
-Save the returned department ID.
+Store the returned department ID.
 
 ### 2.3. Create a Company
 
@@ -151,47 +172,51 @@ mutation CreateCompany {
 }
 ```
 
-Save the returned company ID.
+Store the returned company ID.
 
 ### 2.4. Query Organizations
 
 ```graphql
 query GetOrganizations {
-  universities(first: 5) {
-    edges {
-      node {
-        id
-        name
-        location
-        departments {
-          id
-          name
+allUniversities(first: 5) {
+  edges {
+    node {
+      id
+      name
+      location
+      departments {
+        edges {
+          node {
+            id
+            name
+          }
         }
       }
     }
   }
-  companies(first: 5) {
-    edges {
-      node {
-        id
-        name
-        industry
-      }
+}
+allCompanies(first: 5) {
+  edges {
+    node {
+      id
+      name
+      industry
     }
   }
+}
 }
 ```
 
 ## 3. Invitation System
 
-### 3.1. Create an Invitation to University
+### 3.1. Create a University Invitation
 
 ```graphql
 mutation InviteToUniversity {
   createInvitation(
     email: "newuser@example.com"
-    universityId: "1"  # Replace with actual university ID
-    departmentId: "1"  # Replace with actual department ID
+    universityId: "UNIVERSITY_ID"
+    departmentId: "DEPARTMENT_ID"
     role: "Student"
     message: "Join our university on PhotoCampus!"
   ) {
@@ -211,15 +236,15 @@ mutation InviteToUniversity {
 }
 ```
 
-Save the invitation token.
+Store the invitation token.
 
-### 3.2. Create an Invitation to Company
+### 3.2. Create a Company Invitation
 
 ```graphql
 mutation InviteToCompany {
   createInvitation(
     email: "colleague@example.com"
-    companyId: "1"  # Replace with actual company ID
+    companyId: "COMPANY_ID"
     role: "Photographer"
     message: "Join our company on PhotoCampus!"
   ) {
@@ -236,35 +261,7 @@ mutation InviteToCompany {
 }
 ```
 
-Save the invitation token.
-
-### 3.3. Respond to Invitation (Accepting)
-
-```graphql
-mutation AcceptInvitation {
-  respondToInvitation(
-    invitationToken: "invitation_token_here"  # Replace with the actual token
-    accept: true
-  ) {
-    success
-    message
-  }
-}
-```
-
-### 3.4. Respond to Invitation (Declining)
-
-```graphql
-mutation DeclineInvitation {
-  respondToInvitation(
-    invitationToken: "invitation_token_here"  # Replace with another invitation token
-    accept: false
-  ) {
-    success
-    message
-  }
-}
-```
+Store the invitation token.
 
 ## 4. Post Management
 
@@ -273,8 +270,8 @@ mutation DeclineInvitation {
 ```graphql
 mutation CreatePersonalPost {
   createPost(
-    title: "My First Post"
-    content: "This is a personal post on PhotoCampus."
+    title: "My First Personal Post"
+    content: "This is a personal post created through GraphQL testing."
   ) {
     post {
       id
@@ -283,12 +280,13 @@ mutation CreatePersonalPost {
       author {
         username
       }
+      createdAt
     }
   }
 }
 ```
 
-Save the post ID.
+Store the post ID as "personal_post_id".
 
 ### 4.2. Create a University Post
 
@@ -297,8 +295,8 @@ mutation CreateUniversityPost {
   createPost(
     title: "University Event Photos"
     content: "Photos from our annual graduation ceremony."
-    universityId: "1"  # Replace with actual university ID
-    departmentId: "1"  # Optional
+    universityId: "UNIVERSITY_ID"
+    departmentId: "DEPARTMENT_ID"
     eventName: "Graduation Ceremony 2023"
     eventDate: "2023-06-15"
     location: "Main Campus"
@@ -311,17 +309,22 @@ mutation CreateUniversityPost {
       eventName
       eventDate
       university {
+        id
         name
       }
       department {
+        id
         name
+      }
+      author {
+        username
       }
     }
   }
 }
 ```
 
-Save this post ID.
+Store the post ID as "university_post_id".
 
 ### 4.3. Create a Company Post
 
@@ -330,7 +333,7 @@ mutation CreateCompanyPost {
   createPost(
     title: "Corporate Portfolio"
     content: "Recent photoshoot for our corporate clients."
-    companyId: "1"  # Replace with actual company ID
+    companyId: "COMPANY_ID"
     eventName: "Corporate Photoshoot"
     location: "Studio 3"
     isPrivate: true
@@ -340,12 +343,18 @@ mutation CreateCompanyPost {
       title
       content
       company {
+        id
         name
+      }
+      author {
+        username
       }
     }
   }
 }
 ```
+
+Store the post ID as "company_post_id".
 
 ### 4.4. Query All Posts
 
@@ -367,6 +376,9 @@ query GetAllPosts {
         company {
           name
         }
+        department {
+          name
+        }
       }
     }
   }
@@ -384,6 +396,7 @@ query SearchPosts {
     author {
       username
     }
+    createdAt
   }
 }
 ```
@@ -393,19 +406,23 @@ query SearchPosts {
 ```graphql
 mutation UpdatePost {
   updatePost(
-    postId: "1"  # Replace with actual post ID
-    title: "Updated Post Title"
+    postId: "UNIVERSITY_POST_ID"
+    title: "Updated University Post"
     content: "This content has been updated via GraphQL"
+    eventName: "Updated Event Name"
+    eventDate: "2023-07-15"
+    location: "New Location"
     isPrivate: true
   ) {
     post {
       id
       title
       content
+      eventName
+      eventDate
+      location
       isPrivate
     }
-    success
-    message
   }
 }
 ```
@@ -417,8 +434,8 @@ mutation UpdatePost {
 ```graphql
 mutation AddComment {
   createComment(
-    postId: "1"  # Replace with actual post ID
-    content: "This is a great post! Thanks for sharing."
+    postId: "UNIVERSITY_POST_ID"
+    content: "This is a test comment on the university post."
   ) {
     comment {
       id
@@ -428,6 +445,7 @@ mutation AddComment {
         username
       }
       post {
+        id
         title
       }
     }
@@ -435,21 +453,23 @@ mutation AddComment {
 }
 ```
 
-Save the comment ID.
+Store the comment ID.
 
 ### 5.2. Like a Post
 
 ```graphql
 mutation LikePost {
-  likePost(postId: "1") {  # Replace with actual post ID
+  likePost(postId: "UNIVERSITY_POST_ID") {
     like {
       id
       user {
         username
       }
       post {
+        id
         title
       }
+      createdAt
     }
   }
 }
@@ -460,7 +480,7 @@ mutation LikePost {
 ```graphql
 mutation SharePost {
   sharePost(
-    postId: "1"  # Replace with actual post ID
+    postId: "UNIVERSITY_POST_ID"
     sharedWith: "LinkedIn"
   ) {
     share {
@@ -471,6 +491,7 @@ mutation SharePost {
         username
       }
       post {
+        id
         title
       }
     }
@@ -482,7 +503,7 @@ mutation SharePost {
 
 ```graphql
 query PostWithStats {
-  postsWithStats(limit: 1) {
+  postsWithStats(limit: 5) {
     id
     title
     content
@@ -510,6 +531,9 @@ query PostWithStats {
         username
       }
     }
+    likeCount
+    commentCount
+    shareCount
   }
 }
 ```
@@ -518,8 +542,9 @@ query PostWithStats {
 
 ```graphql
 mutation UnlikePost {
-  unlikePost(postId: "1") {  # Replace with actual post ID
+  unlikePost(postId: "UNIVERSITY_POST_ID") {
     success
+    message
   }
 }
 ```
@@ -528,7 +553,7 @@ mutation UnlikePost {
 
 ```graphql
 mutation DeleteComment {
-  deleteComment(commentId: "1") {  # Replace with actual comment ID
+  deleteComment(commentId: "COMMENT_ID") {
     success
     message
   }
@@ -542,7 +567,7 @@ mutation DeleteComment {
 ```graphql
 query FilterByOrganization {
   # Posts from a specific university
-  universityPosts: allPosts(university_Id: "1", first: 5) {  # Replace with actual university ID
+  universityPosts: allPosts(university_Id: "UNIVERSITY_ID", first: 5) {
     edges {
       node {
         id
@@ -555,7 +580,7 @@ query FilterByOrganization {
   }
   
   # Posts from a specific company
-  companyPosts: allPosts(company_Id: "1", first: 5) {  # Replace with actual company ID
+  companyPosts: allPosts(company_Id: "COMPANY_ID", first: 5) {
     edges {
       node {
         id
@@ -573,7 +598,7 @@ query FilterByOrganization {
 
 ```graphql
 query FilterByDepartment {
-  allPosts(department_Id: "1", first: 5) {  # Replace with actual department ID
+  allPosts(department_Id: "DEPARTMENT_ID", first: 5) {
     edges {
       node {
         id
@@ -595,9 +620,10 @@ query FilterByDepartment {
 ```graphql
 query GetOrganizationMembers {
   # University members
-  universityMemberships(university_Id: "1", first: 10) {  # Replace with actual university ID
+  universityMemberships(university_Id: "UNIVERSITY_ID", first: 10) {
     edges {
       node {
+        id
         role
         user {
           username
@@ -611,9 +637,10 @@ query GetOrganizationMembers {
   }
   
   # Company members
-  companyMemberships(company_Id: "1", first: 10) {  # Replace with actual company ID
+  companyMemberships(company_Id: "COMPANY_ID", first: 10) {
     edges {
       node {
+        id
         role
         user {
           username
@@ -631,23 +658,71 @@ query GetOrganizationMembers {
 
 ```graphql
 mutation DeletePost {
-  deletePost(postId: "1") {  # Replace with actual post ID
+  deletePost(postId: "PERSONAL_POST_ID") {
     success
     message
   }
 }
 ```
 
+## Helper Functions (Pseudocode)
+
+If you're testing programmatically, you might want to implement helper functions similar to those in the test suite:
+
+```javascript
+// Example helper function for executing GraphQL queries
+function executeQuery(query, variables = null, headers = null) {
+  const requestHeaders = headers || {
+    "Content-Type": "application/json"
+  };
+  
+  const payload = { query };
+  if (variables) {
+    payload.variables = variables;
+  }
+  
+  // Using fetch API as an example
+  return fetch('http://localhost:8000/graphql/', {
+    method: 'POST',
+    headers: requestHeaders,
+    body: JSON.stringify(payload)
+  }).then(response => response.json());
+}
+
+// Example helper for authenticated requests
+function getAuthenticatedHeaders() {
+  return {
+    "Content-Type": "application/json",
+    "Authorization": `JWT ${storedToken}`
+  };
+}
+```
+
+## Working with IDs
+
+GraphQL often returns IDs in a base64-encoded format. To extract the numeric ID:
+
+```javascript
+function extractNumericId(encodedId) {
+  // Example: from "VW5pdmVyc2l0eU5vZGU6MQ==" to "1"
+  const decoded = atob(encodedId);
+  const match = decoded.match(/\d+$/);
+  return match ? match[0] : null;
+}
+```
+
 ## Testing Tips
 
-1. **Use Variables**: Instead of hardcoding values in your queries, use GraphQL variables for more flexible testing.
+1. **Maintain State**: Store all IDs and tokens returned from operations for use in later tests.
 
-2. **Sequential Testing**: Run these operations in the sequence shown to build on previous data.
+2. **Sequential Testing**: Follow the testing flow in order as each step builds upon previous ones.
 
-3. **Error Handling**: Pay attention to error messages in responses for debugging issues.
+3. **Error Handling**: Always check for errors in responses for immediate debugging.
 
-4. **Permissions Testing**: Try accessing private posts or performing operations without proper authorization to test security.
+4. **Test Cleanup**: Run cleanup operations at the end to keep your test environment clean.
 
-5. **Batch Operations**: You can combine multiple queries or mutations in a single request where appropriate.
+5. **Include Headers**: Remember to include authentication headers for all authenticated requests.
 
-Remember to replace placeholder IDs with actual IDs returned from your operations. The GraphQL playground allows you to save queries for reuse during testing sessions. 
+6. **Unique Test Data**: Use timestamps in usernames and emails to ensure uniqueness across test runs.
+
+By following this guide, you'll be able to test the complete functionality of the PhotoCampus GraphQL API, exactly mirroring the automated test process. 

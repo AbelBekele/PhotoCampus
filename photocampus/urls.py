@@ -52,16 +52,17 @@ router.register(r'organizations/departments', DepartmentViewSet)
 router.register(r'organizations/memberships', MembershipViewSet, basename='membership')
 
 schema_view = get_schema_view(
-   openapi.Info(
-      title="PhotoCampus API",
-      default_version='v1',
-      description="API documentation for PhotoCampus application",
-      terms_of_service="https://www.photocampus.com/terms/",
-      contact=openapi.Contact(email="contact@photocampus.com"),
-      license=openapi.License(name="BSD License"),
-   ),
-   public=True,
-   permission_classes=(permissions.AllowAny,),
+    openapi.Info(
+        title="PhotoCampus API",
+        default_version='v1',
+        description="API documentation for PhotoCampus application",
+        terms_of_service="https://www.photocampus.com/terms/",
+        contact=openapi.Contact(email="contact@photocampus.com"),
+        license=openapi.License(name="BSD License"),
+    ),
+    public=True,
+    permission_classes=[permissions.AllowAny],
+    url='https://photocampus.abelbekele.com',
 )
 
 urlpatterns = [
@@ -106,6 +107,9 @@ urlpatterns = [
     
     # Post detail view
     path('posts/<int:id>/', login_required(TemplateView.as_view(template_name='post_detail.html')), name='post_detail'),
+    
+    # Invitation handling
+    path('invitation/<uuid:token>/', views.invitation_view, name='invitation'),
 ]
 
 # Serve media files in development

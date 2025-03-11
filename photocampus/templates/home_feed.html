@@ -53,7 +53,7 @@
                 </div>
             </div>
 
-            <h1 class="mb-4">Your Photo Feed</h1>
+            <h1 class="mb-4">Your Home Feed</h1>
             
             <div id="feed-loading" class="text-center">
                 <div class="spinner-border text-primary" role="status">
@@ -1236,13 +1236,20 @@
             .then(data => {
                 const container = document.getElementById('trending-sidebar');
                 
-                if (data.length === 0) {
+                // Handle different response formats (direct array or paginated object with results property)
+                const posts = data.results || data;
+                
+                if (!Array.isArray(posts)) {
+                    throw new Error('Unexpected API response format');
+                }
+                
+                if (posts.length === 0) {
                     container.innerHTML = '<p class="text-muted mb-0">No trending posts available.</p>';
                     return;
                 }
                 
                 let html = '<ul class="list-group list-group-flush">';
-                data.forEach(post => {
+                posts.forEach(post => {
                     html += `
                         <li class="list-group-item px-0">
                             <a href="/posts/${post.id}/" class="text-decoration-none">
@@ -1257,6 +1264,7 @@
                 container.innerHTML = html;
             })
             .catch(error => {
+                console.error('Trending posts error:', error);
                 document.getElementById('trending-sidebar').innerHTML = `
                     <p class="text-muted mb-0">Failed to load trending posts: ${error.message}</p>
                 `;

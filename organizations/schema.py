@@ -263,11 +263,12 @@ class CreateInvitation(graphene.Mutation):
         department_id = graphene.ID(required=False)
         role = graphene.String(required=False)
         message = graphene.String(required=False)
+        first_name = graphene.String(required=False)
 
     invitation = graphene.Field(InvitationType)
 
     def mutate(self, info, email, university_id=None, company_id=None, 
-              department_id=None, role=None, message=None):
+              department_id=None, role=None, message=None, first_name=None):
         user = info.context.user
         if not user.is_authenticated:
             raise Exception("You must be logged in to send invitations")
@@ -285,12 +286,17 @@ class CreateInvitation(graphene.Mutation):
             message=message or ""
         )
         
+        organization_name = ""
+        organization_type = ""
+        
         if university_id:
             university = University.objects.get(pk=university_id)
             # Check if user is admin
             if not university.admins.filter(id=user.id).exists():
                 raise Exception("You must be an admin of the university to send invitations")
             invitation.university = university
+            organization_name = university.name
+            organization_type = "university"
             
             if department_id:
                 department = Department.objects.get(pk=department_id)
@@ -304,10 +310,27 @@ class CreateInvitation(graphene.Mutation):
             if not company.admins.filter(id=user.id).exists():
                 raise Exception("You must be an admin of the company to send invitations")
             invitation.company = company
+            organization_name = company.name
+            organization_type = "company"
         
         invitation.save()
         
-        # In a real application, send an email to the invitee here
+        # Send invitation email
+        from organizations.tasks import send_organization_invitation_email
+        
+        # If first_name not provided, use a default
+        if not first_name:
+            first_name = "there"  # Generic greeting if name not available
+            
+        # Send email asynchronously using Celery
+        send_organization_invitation_email.delay(
+            invitation_id=invitation.id,
+            email=email,
+            first_name=first_name,
+            organization_name=organization_name,
+            organization_type=organization_type,
+            invitation_token=str(invitation.token)
+        )
         
         return CreateInvitation(invitation=invitation)
 

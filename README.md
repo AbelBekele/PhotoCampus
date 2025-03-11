@@ -28,16 +28,34 @@ This backend solution focuses on creating both a scalable GraphQL API and RESTfu
 -   Advertisement platform for photography studios and related services
 -   Analytics for user engagement and content popularity
 
+### 📧 Invitation System
+
+- Email-based invitation system for organization administrators to invite members
+- Customized HTML email templates for different organization types
+- Token-based secure invitation acceptance process
+- Invitation management with status tracking (pending, accepted, declined, expired)
+- Automated retry mechanism for failed email deliveries
+- Scheduled processing of pending invitations via Celery tasks
+
+### 🏠 Personalized Home Feed
+
+- Intelligent content curation algorithm tailored to user preferences
+- Prioritizes content from the user's organizations, departments, and connections
+- Smart categorization of trending posts and recent activities
+- For detailed explanation of the algorithm, see [Home Feed Explained](home_feed_explained.md)
+
 ## Technical Implementation
 
 ### Technology Stack
 
--   **Backend Framework**: Django
+-   **Backend Framework**: Django 5.0
 -   **Database**: PostgreSQL
 -   **API Layer**: GraphQL with Graphene and REST with Django REST Framework
 -   **Testing Interface**: GraphQL Playground and Swagger UI
 -   **Authentication**: JWT-based authentication
 -   **Caching**: Redis for enhanced performance
+-   **Task Queue**: Celery for background processing and scheduled tasks
+-   **Email**: SMTP with HTML template support
 -   **Deployment**: Gunicorn, Nginx, and Let's Encrypt for HTTPS
 -   **Monitoring**: Logging and Sentry for error tracking
 
@@ -77,7 +95,11 @@ The database is optimized for high-volume photo storage and user interactions:
 -   Optimized indexes for frequently queried fields
 -   Constraints to maintain data integrity
 
-## GraphQL Playground
+For a visual representation of the database schema, see the ERD diagrams in the `erd_diagrams/` directory.
+
+## API Documentation & Testing Tools
+
+### GraphQL Playground
 
 The API includes a hosted GraphQL Playground for easy testing and exploration:
 
@@ -86,7 +108,7 @@ The API includes a hosted GraphQL Playground for easy testing and exploration:
 -   Authentication testing capabilities
 -   Shareable query collections for team collaboration
 
-## Swagger UI
+### Swagger UI
 
 The REST API is fully documented with Swagger UI:
 
@@ -95,21 +117,26 @@ The REST API is fully documented with Swagger UI:
 -   Authentication support for protected endpoints
 -   Request/response examples for all endpoints
 
-Access the Swagger UI at `http://localhost:8000/swagger/`
+### ReDoc
+
+An alternative REST API documentation interface with a clean, responsive design:
+- Comprehensive endpoint documentation
+- Request/response schemas
+- Syntax-highlighted examples
 
 ## Installation & Setup
 
 ### Prerequisites
 
--   Python 3.8+
--   PostgreSQL 12+
--   Redis (optional, for enhanced caching)
+-   Python 3.10+
+-   PostgreSQL 14+
+-   Redis (for caching and Celery tasks)
 
 ### Getting Started
 
 1.  Clone the repository
     
-    `git clone git@github.com:AbelBekele/PhotoCampus.git`
+    `git clone https://github.com/AbelBekele/PhotoCampus.git`
     
 2.  Install dependencies
 
@@ -119,7 +146,7 @@ Access the Swagger UI at `http://localhost:8000/swagger/`
     
     `cp .env.example .env`
     
-    Then edit the `.env` file with your settings
+    Then edit the `.env` file with your settings, including SMTP credentials for email functionality
     
 4.  Run migrations
     
@@ -133,10 +160,22 @@ Access the Swagger UI at `http://localhost:8000/swagger/`
     
     `python manage.py runserver`
     
-7.  Access:
-    - GraphQL Playground at `http://localhost:8000/graphql/`
-    - Swagger UI at `http://localhost:8000/swagger/`
-    - Admin panel at `http://localhost:8000/admin/`
+7.  Start Celery worker for background tasks (in a separate terminal)
+    
+    `celery -A photocampus worker -l info`
+    
+8.  Start Celery beat for scheduled tasks (in a separate terminal)
+    
+    `celery -A photocampus beat -l info`
+    
+9.  Access:
+    - Main application: `https://photocampus.abelbekele.com/`
+    - Login page: `https://photocampus.abelbekele.com/login/`
+    - Home feed: `https://photocampus.abelbekele.com/home/`
+    - GraphQL Playground: `https://photocampus.abelbekele.com/graphql/`
+    - Swagger UI: `https://photocampus.abelbekele.com/swagger/`
+    - ReDoc: `https://photocampus.abelbekele.com/redoc/`
+    - Admin panel: `https://photocampus.abelbekele.com/admin/`
 
 ## Testing
 
@@ -144,18 +183,20 @@ Access the Swagger UI at `http://localhost:8000/swagger/`
 
 The project includes comprehensive pytest-based tests for the GraphQL API. These tests cover all aspects of the API, including authentication, post management, comments, likes, and shares.
 
+For detailed testing guidance, see our [Comprehensive GraphQL Testing Guide](comprehensive_graphql_testing_guide.md).
+
 #### Running GraphQL Tests
 
 ```bash
 # Run all tests
-pytest test_graphql.py -v
+pytest tests/test_graphql.py -v
 
 # Run specific test modules or functions
-pytest test_graphql.py::test_login -v
-pytest test_graphql.py::test_create_post -v
+pytest tests/test_graphql.py::test_login -v
+pytest tests/test_graphql.py::test_create_post -v
 
 # Run tests with specific markers
-pytest test_graphql.py -m "parametrize" -v
+pytest -m "graphql" -v
 ```
 
 ### REST API Testing
@@ -199,6 +240,7 @@ PhotoCampus implements multiple layers of security:
 -   **XSS Protection**: Security headers and content-type restrictions
 -   **Content Security Policy**: Restricted resource loading
 -   **Exception Handling**: Custom exception handlers to prevent information leakage
+-   **Email Security**: Secure token-based invitation system
 
 ## Performance Optimizations
 
@@ -209,6 +251,7 @@ PhotoCampus implements multiple layers of security:
 -   **Throttling**: Rate limiting to prevent abuse
 -   **Optimized Serializers**: Customized serializers for different use cases
 -   **Denormalization**: Strategic denormalization for frequently accessed data
+-   **Background Processing**: Celery for handling resource-intensive tasks
 
 ## Development Roadmap
 
@@ -234,32 +277,44 @@ PhotoCampus implements multiple layers of security:
 -   Add analytics for user engagement
 -   Develop batch upload tools for studios
 -   Enhance security features
+-   Add email notification system with HTML templates
 
-### Phase 4: Future Enhancements 🔄
+### Phase 4: Future Enhancements 🚀
 
 -   Mobile app integration
 -   AI-powered photo categorization
 -   Enhanced analytics dashboard
 -   Event-based notifications
 -   Offline capabilities
+-   Real-time feed updates with WebSockets
 
 ## Why PhotoCampus?
 
 Unlike general social media platforms, PhotoCampus creates focused communities around educational and professional contexts. Our platform makes it easier to:
 
 -   Preserve institutional memories in a sustainable way
--   Find and connect with specific cohorts of people
--   Share professional photography in a controlled environment
--   Reduce the environmental impact of printed yearbooks
+-   Connect with specific educational or professional communities
+-   Find and reconnect with alumni and former colleagues
+-   Create a sense of belonging to organizations
+-   Maintain professional networks in a photo-centric environment
 
-## Contact & Contribution
+## Contributing
 
-We welcome contributions to the PhotoCampus project! To get involved:
+We welcome contributions to the PhotoCampus project! Please follow standard GitHub flow:
 
--   GitHub: [github.com:AbelBekele/PhotoCampus.git](https://github.com:AbelBekele/PhotoCampus.git)
--   Issue Tracker: Report bugs and feature requests through the GitHub issues page
--   Pull Requests: Submit improvements following our contribution guidelines
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run the tests
+5. Submit a pull request
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License.
+
+## Contact
+
+For questions, support, or inquiries about PhotoCampus, please contact:
+
+- Email: support@photocampus.com
+- GitHub: [https://github.com/AbelBekele/PhotoCampus](https://github.com/AbelBekele/PhotoCampus)
