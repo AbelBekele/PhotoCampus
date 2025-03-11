@@ -1,0 +1,132 @@
+{% extends 'base.html' %}
+
+{% block title %}Sign Up - PhotoCampus{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card shadow">
+                <div class="card-header bg-white py-3">
+                    <h4 class="card-title mb-0 text-center">Create Your PhotoCampus Account</h4>
+                </div>
+                <div class="card-body p-4">
+                    {% if messages %}
+                    <div class="messages">
+                        {% for message in messages %}
+                        <div class="alert alert-{{ message.tags }}">
+                            {{ message }}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    
+                    <form method="post" action="{% url 'register' %}">
+                        {% csrf_token %}
+                        
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="id_first_name" class="form-label">First Name</label>
+                                <input type="text" name="first_name" id="id_first_name" 
+                                    class="form-control {% if form.first_name.errors %}is-invalid{% endif %}" 
+                                    placeholder="Enter your first name" 
+                                    value="{{ form.first_name.value|default:'' }}"
+                                    autofocus>
+                                {% if form.first_name.errors %}
+                                <div class="invalid-feedback">
+                                    {{ form.first_name.errors }}
+                                </div>
+                                {% endif %}
+                            </div>
+                            
+                            <div class="col-md-6 mb-3">
+                                <label for="id_last_name" class="form-label">Last Name</label>
+                                <input type="text" name="last_name" id="id_last_name" 
+                                    class="form-control {% if form.last_name.errors %}is-invalid{% endif %}" 
+                                    placeholder="Enter your last name" 
+                                    value="{{ form.last_name.value|default:'' }}">
+                                {% if form.last_name.errors %}
+                                <div class="invalid-feedback">
+                                    {{ form.last_name.errors }}
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="id_username" class="form-label">Username *</label>
+                            <input type="text" name="username" id="id_username" 
+                                class="form-control {% if form.username.errors %}is-invalid{% endif %}" 
+                                placeholder="Choose a username" 
+                                value="{{ form.username.value|default:'' }}"
+                                required>
+                            {% if form.username.errors %}
+                            <div class="invalid-feedback">
+                                {{ form.username.errors }}
+                            </div>
+                            {% endif %}
+                            <div class="form-text">150 characters or fewer. Letters, digits and @/./+/-/_ only.</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="id_email" class="form-label">Email Address *</label>
+                            <input type="email" name="email" id="id_email" 
+                                class="form-control {% if form.email.errors %}is-invalid{% endif %}" 
+                                placeholder="Enter your email address" 
+                                value="{{ form.email.value|default:'' }}"
+                                required>
+                            {% if form.email.errors %}
+                            <div class="invalid-feedback">
+                                {{ form.email.errors }}
+                            </div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="id_password1" class="form-label">Password *</label>
+                            <input type="password" name="password1" id="id_password1" 
+                                class="form-control {% if form.password1.errors %}is-invalid{% endif %}" 
+                                placeholder="Create a password" 
+                                required>
+                            {% if form.password1.errors %}
+                            <div class="invalid-feedback">
+                                {{ form.password1.errors }}
+                            </div>
+                            {% endif %}
+                            <div class="form-text">
+                                <ul>
+                                    <li>Your password can't be too similar to your other personal information.</li>
+                                    <li>Your password must contain at least 8 characters.</li>
+                                    <li>Your password can't be a commonly used password.</li>
+                                    <li>Your password can't be entirely numeric.</li>
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label for="id_password2" class="form-label">Confirm Password *</label>
+                            <input type="password" name="password2" id="id_password2" 
+                                class="form-control {% if form.password2.errors %}is-invalid{% endif %}" 
+                                placeholder="Confirm your password" 
+                                required>
+                            {% if form.password2.errors %}
+                            <div class="invalid-feedback">
+                                {{ form.password2.errors }}
+                            </div>
+                            {% endif %}
+                            <div class="form-text">Enter the same password as before, for verification.</div>
+                        </div>
+                        
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary btn-lg">Sign Up</button>
+                        </div>
+                    </form>
+                </div>
+                <div class="card-footer bg-white py-3 text-center">
+                    <p class="mb-0">Already have an account? <a href="{% url 'login' %}" class="text-decoration-none">Log in</a></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

@@ -1,0 +1,195 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ organization.name }} - PhotoCampus{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <!-- Organization Profile Card -->
+        <div class="col-md-4 mb-4">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    {% if organization.logo %}
+                    <div class="text-center mb-3">
+                        <img src="{{ organization.logo.url }}" alt="{{ organization.name }} Logo" class="img-fluid" style="max-height: 150px;">
+                    </div>
+                    {% endif %}
+                    
+                    <h1 class="card-title h4 mb-3">{{ organization.name }}</h1>
+                    
+                    <div class="mb-3">
+                        <span class="badge bg-secondary">
+                            {% if organization_type == 'university' %}University{% else %}Company{% endif %}
+                        </span>
+                    </div>
+                    
+                    {% if organization.description %}
+                    <p class="card-text">{{ organization.description }}</p>
+                    {% endif %}
+                    
+                    <div class="mt-3">
+                        {% if organization.website %}
+                        <p>
+                            <i class="bi bi-globe"></i> 
+                            <a href="{{ organization.website }}" target="_blank">Website</a>
+                        </p>
+                        {% endif %}
+                        
+                        {% if organization_type == 'university' and organization.location %}
+                        <p><i class="bi bi-geo-alt"></i> {{ organization.location }}</p>
+                        {% endif %}
+                        
+                        {% if organization_type == 'university' and organization.founded_year %}
+                        <p><i class="bi bi-calendar"></i> Founded: {{ organization.founded_year }}</p>
+                        {% endif %}
+                        
+                        {% if organization_type == 'company' and organization.industry %}
+                        <p><i class="bi bi-briefcase"></i> Industry: {{ organization.industry }}</p>
+                        {% endif %}
+                        
+                        {% if organization_type == 'company' and organization.company_size %}
+                        <p><i class="bi bi-people"></i> Size: {{ organization.company_size }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Departments (if it's a university) -->
+            {% if organization_type == 'university' and organization.departments.all %}
+            <div class="card shadow-sm mt-4">
+                <div class="card-header bg-white">
+                    <h5 class="card-title mb-0">Departments</h5>
+                </div>
+                <div class="card-body">
+                    <ul class="list-group list-group-flush">
+                        {% for department in organization.departments.all %}
+                        <li class="list-group-item">{{ department.name }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        
+        <!-- Posts Column -->
+        <div class="col-md-8">
+            <h2 class="mb-4">Posts from {{ organization.name }}</h2>
+            
+            {% if posts %}
+                {% for post in posts %}
+                <div class="card shadow-sm mb-4">
+                    <!-- Post Header -->
+                    <div class="card-header bg-white py-3">
+                        <div class="d-flex align-items-center">
+                            <img src="{{ post.author.profile.avatar.url|default:'/static/images/default-avatar.png' }}" 
+                                 alt="{{ post.author.username }}" 
+                                 class="rounded-circle me-2" 
+                                 width="40" height="40">
+                            <div>
+                                <h6 class="mb-0">{{ post.author.get_full_name|default:post.author.username }}</h6>
+                                <small class="text-muted">{{ post.created_at|date:"F j, Y" }}</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Post Image (if available) -->
+                    {% if post.image %}
+                    <img src="{{ post.image.url }}" alt="{{ post.caption }}" class="post-image img-fluid">
+                    {% endif %}
+                    
+                    <!-- Post Content -->
+                    <div class="card-body">
+                        <p class="card-text">{{ post.caption }}</p>
+                        
+                        <!-- Tags -->
+                        {% if post.tags.all %}
+                        <div class="mb-3">
+                            {% for tag in post.tags.all %}
+                            <span class="badge bg-light text-dark me-1">#{{ tag.name }}</span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        
+                        <!-- Engagement Metrics -->
+                        <div class="d-flex justify-content-between text-muted mt-3">
+                            <span><i class="bi bi-heart"></i> {{ post.likes.count }} likes</span>
+                            <span><i class="bi bi-chat"></i> {{ post.comments.count }} comments</span>
+                            <span><i class="bi bi-share"></i> {{ post.shares.count }} shares</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Post Footer / Engagement Actions -->
+                    <div class="card-footer bg-white">
+                        <div class="d-flex engagement-actions">
+                            <button class="btn btn-link text-decoration-none like-btn {% if user in post.likes.all %}text-danger active{% endif %}"
+                                    data-post-id="{{ post.id }}">
+                                <i class="bi bi-heart{% if user in post.likes.all %}-fill{% endif %}"></i> Like
+                            </button>
+                            <a href="{% url 'post_detail' post.id %}" class="btn btn-link text-decoration-none">
+                                <i class="bi bi-chat"></i> Comment
+                            </a>
+                            <button class="btn btn-link text-decoration-none share-btn" data-post-id="{{ post.id }}">
+                                <i class="bi bi-share"></i> Share
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> There are no posts from this organization yet.
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Handle like actions
+        const likeButtons = document.querySelectorAll('.like-btn');
+        likeButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                const postId = this.dataset.postId;
+                toggleLike(postId, this);
+            });
+        });
+        
+        // Function to toggle like
+        function toggleLike(postId, button) {
+            fetch(`/api/posts/${postId}/like/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Toggle like UI
+                    button.classList.toggle('text-danger');
+                    button.classList.toggle('active');
+                    
+                    // Toggle heart icon
+                    const heartIcon = button.querySelector('i');
+                    if (button.classList.contains('active')) {
+                        heartIcon.classList.replace('bi-heart', 'bi-heart-fill');
+                    } else {
+                        heartIcon.classList.replace('bi-heart-fill', 'bi-heart');
+                    }
+                    
+                    // Update likes count
+                    const likesCountElement = button.closest('.card').querySelector('.d-flex.justify-content-between span:first-child');
+                    const currentCount = parseInt(likesCountElement.textContent.split(' ')[1]);
+                    const newCount = button.classList.contains('active') ? currentCount + 1 : currentCount - 1;
+                    likesCountElement.innerHTML = `<i class="bi bi-heart"></i> ${newCount} likes`;
+                }
+            })
+            .catch(error => console.error('Error:', error));
+        }
+    });
+</script>
+{% endblock %} 
